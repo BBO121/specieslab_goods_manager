@@ -598,6 +598,304 @@ importFile.addEventListener('change', (e) => {
     reader.readAsText(file, 'utf-8');
 });
 
+/* ---------------- 엑셀/CSV 주문 가져오기 ---------------- */
+
+const excelImportBtn = document.getElementById('excelImportBtn');
+const excelImportFileInput = document.getElementById('excelImportFileInput');
+const excelImportDialog = document.getElementById('excelImportDialog');
+const excelImportFileName = document.getElementById('excelImportFileName');
+const excelMappingGrid = document.getElementById('excelMappingGrid');
+const excelImportSummary = document.getElementById('excelImportSummary');
+const excelPreviewBody = document.getElementById('excelPreviewBody');
+const excelImportCancelBtn = document.getElementById('excelImportCancelBtn');
+const excelImportConfirmBtn = document.getElementById('excelImportConfirmBtn');
+
+const EXCEL_TARGET_FIELDS = [
+    { key: 'orderId', label: '주문번호', patterns: ['주문번호'] },
+    { key: 'buyerName', label: '주문자명', patterns: ['주문자명', '성함(닉네임)', '성함', '이름'] },
+    { key: 'nickname', label: '닉네임', patterns: ['닉네임'] },
+    { key: 'phone', label: '연락처', patterns: ['주문자연락처', '수령자연락처', '연락처'] },
+    { key: 'receiveMethod', label: '배송방법', patterns: ['배송방법', '수령방법'] },
+    { key: 'paidStatus', label: '입금/진행상태', patterns: ['진행상태', '입금여부', '결제상태'] },
+    { key: 'zipcode', label: '우편번호', patterns: ['우편번호'] },
+    { key: 'address1', label: '주소', patterns: ['주소'] },
+    { key: 'address2', label: '상세주소', patterns: ['상세주소'] },
+    { key: 'shippingMemo', label: '배송메모', patterns: ['배송메모'] },
+    { key: 'memo', label: '메모', patterns: ['메모'] },
+    { key: 'courierCompany', label: '택배사', patterns: ['택배사'] },
+    { key: 'tracking', label: '운송장번호', patterns: ['운송장번호', '송장번호'] },
+    { key: 'item1', label: '포카세트 수량', patterns: ['[상품1]', '상품1'] },
+    { key: 'item2', label: '키링 수량', patterns: ['[상품2]', '상품2'] },
+    { key: 'item3', label: '자석세트 수량', patterns: ['[상품3]', '상품3'] },
+    { key: 'item4', label: '올세트 수량', patterns: ['[상품4]', '상품4'] },
+];
+
+const EXCEL_STATUS_LABEL = { new: '신규', overwrite: '덮어쓰기', skip: '건너뜀', error: '오류' };
+
+let excelHeaders = [];
+let excelDataRows = [];
+let excelMapping = {};
+let excelImportResult = [];
+
+function findHeaderIndex(headers, patterns) {
+    for (const p of patterns) {
+        const idx = headers.findIndex((h) => h === p);
+        if (idx !== -1) return idx;
+    }
+    for (const p of patterns) {
+        const idx = headers.findIndex((h) => h.includes(p));
+        if (idx !== -1) return idx;
+    }
+    return -1;
+}
+
+function getExcelCell(row, idx) {
+    if (idx === undefined || idx === null || idx < 0) return '';
+    const v = row[idx];
+    return v === undefined || v === null ? '' : String(v).trim();
+}
+
+function toExcelQty(v) {
+    const n = Number(String(v).replace(/[^0-9.-]/g, ''));
+    return Number.isFinite(n) && n > 0 ? Math.round(n) : 0;
+}
+
+function inferReceiveMethod(rawValue, hasAddress) {
+    if (rawValue) return rawValue.includes('현장') ? '현장수령' : '통판';
+    return hasAddress ? '통판' : '현장수령';
+}
+
+function inferCourier(rawValue) {
+    return rawValue.includes('반값') ? '반값택배' : '일반택배';
+}
+
+function inferPaid(rawValue) {
+    if (!rawValue) return false;
+    if (/취소|환불|대기|미입금|미결제/.test(rawValue)) return false;
+    if (/완료|입금확인|결제확인/.test(rawValue)) return true;
+    return false;
+}
+
+function buildExcelMappingUI() {
+    excelMappingGrid.innerHTML = '';
+    excelMapping = {};
+    EXCEL_TARGET_FIELDS.forEach((field) => {
+        const guessedIdx = findHeaderIndex(excelHeaders, field.patterns);
+        excelMapping[field.key] = guessedIdx;
+
+        const row = document.createElement('div');
+        row.className = 'excelMappingRow';
+
+        const label = document.createElement('label');
+        label.textContent = field.label;
+
+        const select = document.createElement('select');
+        const noneOpt = document.createElement('option');
+        noneOpt.value = '-1';
+        noneOpt.textContent = '(사용 안 함)';
+        select.appendChild(noneOpt);
+        excelHeaders.forEach((h, idx) => {
+            const opt = document.createElement('option');
+            opt.value = String(idx);
+            opt.textContent = h || `(빈 헤더 ${idx + 1}열)`;
+            select.appendChild(opt);
+        });
+        select.value = String(guessedIdx);
+        select.addEventListener('change', () => {
+            excelMapping[field.key] = Number(select.value);
+            updateExcelPreview();
+        });
+
+        row.appendChild(label);
+        row.appendChild(select);
+        excelMappingGrid.appendChild(row);
+    });
+}
+
+function renderExcelPreviewTable() {
+    excelPreviewBody.innerHTML = excelImportResult.map((r) => {
+        const o = r.order;
+        const qtySummary = `${o.items.photocard}/${o.items.keyring}/${o.items.magnet}/${o.items.fullset}`;
+        return `
+            <tr class="excel-row-${r.status}">
+                <td>${r.rowNum}</td>
+                <td><span class="excel-status-badge ${r.status}">${EXCEL_STATUS_LABEL[r.status]}</span></td>
+                <td>${escapeHtml(o.id)}</td>
+                <td class="name-cell">${escapeHtml(o.name)}</td>
+                <td>${escapeHtml(o.phone)}</td>
+                <td>${escapeHtml(o.receiveMethod)}</td>
+                <td>${qtySummary}</td>
+                <td>${o.paid ? '입금완료' : '미입금'}</td>
+                <td>${r.errors.length ? escapeHtml(r.errors.join(', ')) : ''}</td>
+            </tr>
+        `;
+    }).join('');
+}
+
+function updateExcelPreview() {
+    const mode = document.querySelector('input[name="excelImportMode"]:checked').value;
+    const seenIdsInBatch = new Set();
+    let newCount = 0;
+    let overwriteCount = 0;
+    let skipCount = 0;
+    let errorCount = 0;
+
+    excelImportResult = excelDataRows.map((row, i) => {
+        const rowNum = i + 2;
+        const buyerName = getExcelCell(row, excelMapping.buyerName);
+        const nickname = getExcelCell(row, excelMapping.nickname);
+        let orderId = getExcelCell(row, excelMapping.orderId);
+        const phone = getExcelCell(row, excelMapping.phone);
+        const receiveRaw = getExcelCell(row, excelMapping.receiveMethod);
+        const paidRaw = getExcelCell(row, excelMapping.paidStatus);
+        const zipcode = getExcelCell(row, excelMapping.zipcode);
+        const address1 = getExcelCell(row, excelMapping.address1);
+        const address2 = getExcelCell(row, excelMapping.address2);
+        const shippingMemo = getExcelCell(row, excelMapping.shippingMemo);
+        const memo = getExcelCell(row, excelMapping.memo);
+        const tracking = getExcelCell(row, excelMapping.tracking);
+
+        const items = {
+            photocard: toExcelQty(getExcelCell(row, excelMapping.item1)),
+            keyring: toExcelQty(getExcelCell(row, excelMapping.item2)),
+            magnet: toExcelQty(getExcelCell(row, excelMapping.item3)),
+            fullset: toExcelQty(getExcelCell(row, excelMapping.item4)),
+        };
+
+        const errors = [];
+        if (!buyerName) errors.push('이름 없음');
+        const totalQty = Object.values(items).reduce((a, b) => a + b, 0);
+        if (totalQty === 0) errors.push('상품 수량 없음');
+
+        if (!orderId) {
+            orderId = `IMPORT-${rowNum}-${Date.now().toString(36).slice(-5)}`;
+        }
+        if (seenIdsInBatch.has(orderId)) {
+            errors.push('파일 내 주문번호 중복');
+        }
+        seenIdsInBatch.add(orderId);
+
+        const address = [zipcode, address1, address2].filter(Boolean).join(' ');
+        const receiveMethod = inferReceiveMethod(receiveRaw, !!address);
+
+        const order = {
+            id: orderId,
+            name: nickname ? `${buyerName}(${nickname})` : buyerName,
+            phone,
+            receiveMethod,
+            items,
+            paid: inferPaid(paidRaw),
+            memo,
+            shipping: receiveMethod === '통판' ? {
+                courier: inferCourier(receiveRaw),
+                address,
+                packed: false,
+                shipped: !!tracking,
+                tracking,
+                shippedDate: '',
+                memo: shippingMemo,
+            } : emptyShipping(),
+        };
+
+        let status;
+        if (errors.length) {
+            status = 'error';
+            errorCount += 1;
+        } else {
+            const existingIdx = orders.findIndex((o) => o.id === orderId);
+            if (existingIdx === -1) {
+                status = 'new';
+                newCount += 1;
+            } else if (mode === 'overwrite') {
+                status = 'overwrite';
+                overwriteCount += 1;
+            } else {
+                status = 'skip';
+                skipCount += 1;
+            }
+        }
+
+        return { rowNum, order, status, errors };
+    });
+
+    excelImportSummary.textContent = `총 ${excelDataRows.length}행 · 신규 ${newCount}건 · 덮어쓰기 ${overwriteCount}건 · 건너뜀(중복) ${skipCount}건 · 오류 ${errorCount}건`;
+    renderExcelPreviewTable();
+    excelImportConfirmBtn.disabled = (newCount + overwriteCount) === 0;
+}
+
+excelImportBtn.addEventListener('click', () => excelImportFileInput.click());
+
+document.querySelectorAll('input[name="excelImportMode"]').forEach((radio) => {
+    radio.addEventListener('change', updateExcelPreview);
+});
+
+excelImportFileInput.addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = () => {
+        try {
+            const data = new Uint8Array(reader.result);
+            const workbook = XLSX.read(data, { type: 'array' });
+            const firstSheetName = workbook.SheetNames[0];
+            const sheet = workbook.Sheets[firstSheetName];
+            const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '', raw: false });
+
+            if (!rows.length) {
+                alert('파일에서 데이터를 찾지 못했습니다.');
+                return;
+            }
+
+            excelHeaders = rows[0].map((h) => String(h ?? '').trim());
+            excelDataRows = rows.slice(1).filter((r) => r.some((cell) => String(cell ?? '').trim() !== ''));
+
+            if (!excelDataRows.length) {
+                alert('가져올 주문 데이터가 없습니다.');
+                return;
+            }
+
+            excelImportFileName.textContent = `파일: ${file.name} (${excelDataRows.length}건 인식)`;
+            buildExcelMappingUI();
+            updateExcelPreview();
+            excelImportDialog.showModal();
+        } catch (err) {
+            console.error(err);
+            alert('파일을 읽는 중 오류가 발생했습니다. xlsx / xls / csv 형식인지 확인해주세요.');
+        } finally {
+            e.target.value = '';
+        }
+    };
+    reader.readAsArrayBuffer(file);
+});
+
+excelImportCancelBtn.addEventListener('click', () => excelImportDialog.close());
+
+excelImportConfirmBtn.addEventListener('click', () => {
+    let added = 0;
+    let overwritten = 0;
+
+    excelImportResult.forEach((r) => {
+        if (r.status === 'new') {
+            orders.push(r.order);
+            added += 1;
+        } else if (r.status === 'overwrite') {
+            const idx = orders.findIndex((o) => o.id === r.order.id);
+            if (idx !== -1) orders[idx] = r.order;
+            overwritten += 1;
+        }
+    });
+
+    if (added || overwritten) {
+        saveOrders();
+        renderAll();
+        markDirty();
+    }
+
+    showToast(`엑셀 가져오기 완료: 신규 ${added}건, 덮어쓰기 ${overwritten}건`);
+    excelImportDialog.close();
+});
+
 /* ---------------- 초기화 ---------------- */
 
 shippingPage.classList.add('hidden');

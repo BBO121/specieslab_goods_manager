@@ -16,12 +16,14 @@
             </div>
             <div class="dataTools">
                 <button type="button" id="addOrderBtn">주문 추가</button>
+                <button type="button" id="excelImportBtn">엑셀 주문 가져오기</button>
                 <button type="button" id="exportJsonBtn">JSON 내보내기</button>
                 <button type="button" id="exportCsvBtn">CSV 내보내기</button>
                 <label class="fileImport">
                     불러오기
                     <input type="file" id="importFile" accept=".json,.csv">
                 </label>
+                <input type="file" id="excelImportFileInput" accept=".xlsx,.xls,.csv" hidden>
             </div>
         </div>
     </header>
@@ -33,7 +35,7 @@
                 </li>
                 <li>
                     <p>매출<span data-stat="revenue">0</span></p>
-                </li>
+        6        </li>
                 <li>
                     <p>발송완료<span data-stat="shippedCount">0</span></p>
                 </li>
@@ -174,10 +176,66 @@
         </form>
     </dialog>
 
+    <dialog id="excelImportDialog">
+        <div class="excelImportModal">
+            <h2>엑셀 주문 가져오기</h2>
+            <p class="excelImportFileName" id="excelImportFileName"></p>
+
+            <div class="excelImportSection">
+                <h3>컬럼 매핑 확인</h3>
+                <p class="excelImportHint">파일의 열을 자동으로 인식했어요. 잘못 매칭된 항목이 있으면 직접 바꿔주세요.</p>
+                <div class="excelMappingGrid" id="excelMappingGrid"></div>
+            </div>
+
+            <div class="excelImportSection">
+                <h3>가져오기 방식</h3>
+                <div class="excelImportOptions">
+                    <label class="radioOption">
+                        <input type="radio" name="excelImportMode" value="add" checked>
+                        새 주문만 추가 (기존 주문번호는 건너뜀)
+                    </label>
+                    <label class="radioOption">
+                        <input type="radio" name="excelImportMode" value="overwrite">
+                        기존 주문번호는 덮어쓰기
+                    </label>
+                </div>
+            </div>
+
+            <div class="excelImportSection">
+                <h3>미리보기</h3>
+                <p class="excelImportSummary" id="excelImportSummary"></p>
+                <div class="excelPreviewWrap">
+                    <table class="excelPreviewTable">
+                        <thead>
+                            <tr>
+                                <th>행</th>
+                                <th>상태</th>
+                                <th>주문번호</th>
+                                <th>이름</th>
+                                <th>연락처</th>
+                                <th>수령방법</th>
+                                <th>수량(포/키/자/올)</th>
+                                <th>입금</th>
+                                <th>비고</th>
+                            </tr>
+                        </thead>
+                        <tbody id="excelPreviewBody"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="dialogActions">
+                <button type="button" id="excelImportCancelBtn">취소</button>
+                <button type="button" id="excelImportConfirmBtn">가져오기</button>
+            </div>
+        </div>
+    </dialog>
+
     <footer>
         <small>made by. BBO</small>
     </footer>
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
     <script src="js/app.js" defer></script>
 </body>
 </html>
