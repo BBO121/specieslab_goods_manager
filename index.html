@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>종족연구소 굿즈 매니저</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <header>
+        <h1>종족연구소 굿즈 매니저</h1>
+        <div class="headerControls">
+            <div class="backupStatus">
+                <span id="backupStatusText">백업 완료</span>
+                <span id="lastBackupText">마지막 백업: 없음</span>
+            </div>
+            <div class="dataTools">
+                <button type="button" id="addOrderBtn">주문 추가</button>
+                <button type="button" id="exportJsonBtn">JSON 내보내기</button>
+                <button type="button" id="exportCsvBtn">CSV 내보내기</button>
+                <label class="fileImport">
+                    불러오기
+                    <input type="file" id="importFile" accept=".json,.csv">
+                </label>
+            </div>
+        </div>
+    </header>
+    <main>
+        <div id="mainList" class="mainListArea">
+            <ul>
+                <li>
+                    <p>주문<span data-stat="orderCount">0</span></p>
+                </li>
+                <li>
+                    <p>매출<span data-stat="revenue">0</span></p>
+                </li>
+                <li>
+                    <p>발송완료<span data-stat="shippedCount">0</span></p>
+                </li>
+                <li>
+                    <p>미발송<span data-stat="unshippedCount">0</span></p>
+                </li>
+            </ul>
+        </div>
+        <aside>
+            <nav>
+                <ul>
+                    <li><button type="button" class="active" data-page="order">주문목록</button></li>
+                    <li><button type="button" data-page="shipping">통판관리</button></li>
+                </ul>
+            </nav>
+        </aside>
+
+
+        <!-- 주문 목록 -->
+        <section class="orderPage">
+            <h2>주문 목록</h2>
+            <div class="toolbar">
+                <input type="search" id="orderSearch" placeholder="주문번호 / 이름 / 닉네임 검색">
+                <select id="orderReceiveFilter">
+                    <option value="all">전체</option>
+                    <option value="현장수령">현장수령</option>
+                    <option value="통판">통판</option>
+                </select>
+                <select id="orderPaidFilter">
+                    <option value="all">전체</option>
+                    <option value="paid">입금완료</option>
+                    <option value="unpaid">미입금</option>
+                </select>
+            </div>
+            <table>
+                <thead>
+                    <tr>
+                        <th rowspan="2">주문번호</th>
+                        <th rowspan="2">성함(닉네임)</th>
+                        <th rowspan="2">연락처</th>
+                        <th rowspan="2">수령방법</th>
+                        <th colspan="4">상품</th>
+                        <th rowspan="2">가격</th>
+                        <th rowspan="2">입금</th>
+                        <th rowspan="2">비고</th>
+                        <th rowspan="2">관리</th>
+                    </tr>
+                    <tr>
+                        <th>포카세트</th>
+                        <th>키링</th>
+                        <th>자석세트</th>
+                        <th>올세트</th>
+                    </tr>
+                </thead>
+                <tbody id="orderTableBody"></tbody>
+            </table>
+        </section>
+
+
+        <!-- 통판 관리 -->
+        <section class="shippingPage">
+            <h2>통판 관리</h2>
+            <div class="toolbar">
+                <input type="search" id="shippingIdSearch" placeholder="주문번호 검색">
+                <input type="search" id="shippingNameSearch" placeholder="이름 검색">
+                <label class="toggle">
+                    <input type="checkbox" id="unshippedOnly">
+                    미발송만 보기
+                </label>
+            </div>
+            <table>
+                <thead>
+                    <tr>
+                        <th>주문번호</th>
+                        <th>성함(닉네임)</th>
+                        <th>택배종류</th>
+                        <th>연락처</th>
+                        <th>주소(편의점주소)</th>
+                        <th>포장</th>
+                        <th>발송</th>
+                        <th>송장번호</th>
+                        <th>발송일</th>
+                        <th>비고</th>
+                        <th>관리</th>
+                    </tr>
+                </thead>
+                <tbody id="shippingTableBody"></tbody>
+            </table>
+        </section>
+    </main>
+
+    <dialog id="orderDialog">
+        <form id="orderForm">
+            <h2 id="orderDialogTitle">주문 추가</h2>
+            <input type="hidden" id="orderEditingId">
+
+            <label>주문번호 <input type="text" id="fieldOrderId" required></label>
+            <label>성함(닉네임) <input type="text" id="fieldName" required></label>
+            <label>연락처 <input type="text" id="fieldPhone"></label>
+            <label>수령방법
+                <select id="fieldReceiveMethod">
+                    <option value="현장수령">현장수령</option>
+                    <option value="통판">통판</option>
+                </select>
+            </label>
+
+            <fieldset>
+                <legend>상품 수량</legend>
+                <label>포카세트 <input type="number" id="fieldPhotocard" min="0" value="0"></label>
+                <label>키링 <input type="number" id="fieldKeyring" min="0" value="0"></label>
+                <label>자석세트 <input type="number" id="fieldMagnet" min="0" value="0"></label>
+                <label>올세트 <input type="number" id="fieldFullset" min="0" value="0"></label>
+            </fieldset>
+
+            <label>입금여부 <input type="checkbox" id="fieldPaid"></label>
+            <label>비고 <input type="text" id="fieldMemo"></label>
+
+            <fieldset id="shippingFields">
+                <legend>통판 정보</legend>
+                <label>택배종류
+                    <select id="fieldCourier">
+                        <option value="반값택배">반값택배</option>
+                        <option value="일반택배">일반택배</option>
+                    </select>
+                </label>
+                <label>주소(편의점주소) <input type="text" id="fieldAddress"></label>
+                <label>포장 <input type="checkbox" id="fieldPacked"></label>
+                <label>발송 <input type="checkbox" id="fieldShipped"></label>
+                <label>송장번호 <input type="text" id="fieldTracking"></label>
+                <label>발송일 <input type="date" id="fieldShippedDate"></label>
+                <label>통판 비고 <input type="text" id="fieldShippingMemo"></label>
+            </fieldset>
+
+            <div class="dialogActions">
+                <button type="button" id="cancelOrderBtn">취소</button>
+                <button type="submit" id="saveOrderBtn">저장</button>
+            </div>
+        </form>
+    </dialog>
+
+    <footer>
+        <small>made by. BBO</small>
+    </footer>
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+    <script src="js/app.js" defer></script>
+</body>
+</html>
