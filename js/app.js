@@ -75,6 +75,7 @@ let orders = loadOrders();
 const navButtons = document.querySelectorAll('aside nav button');
 const orderPage = document.querySelector('.orderPage');
 const shippingPage = document.querySelector('.shippingPage');
+const productionPage = document.querySelector('.productionPage');
 
 const orderTableBody = document.getElementById('orderTableBody');
 const shippingTableBody = document.getElementById('shippingTableBody');
@@ -184,6 +185,7 @@ navButtons.forEach((btn) => {
         const page = btn.dataset.page;
         orderPage.classList.toggle('hidden', page !== 'order');
         shippingPage.classList.toggle('hidden', page !== 'shipping');
+        productionPage.classList.toggle('hidden', page !== 'production');
     });
 });
 
@@ -294,6 +296,7 @@ function renderAll() {
     renderOrderTable();
     renderShippingTable();
     renderStats();
+    renderProduction();
 }
 
 /* ---------------- 검색 / 필터 ---------------- */
@@ -896,9 +899,472 @@ excelImportConfirmBtn.addEventListener('click', () => {
     excelImportDialog.close();
 });
 
+/* ===================================================
+   발주 관리 / 손익 계산 대시보드
+   =================================================== */
+
+const PRODUCTION_STORAGE_KEY = 'speciesLabGoodsProduction';
+
+function defaultProduction() {
+    return {
+        photocard: {
+            stock: 4,
+            prepaid: 8,
+            tiers: [
+                { id: 't1', label: '10매 묶음', sheets: 10, price: 3400 },
+                { id: 't2', label: '17매 묶음', sheets: 17, price: 5100 },
+            ],
+            selectedTierId: 't2',
+            bundleCount: 2,
+        },
+        keyring: { stock: 0, orderQty: 25, prepaid: 9, unitCost: 3230 },
+        magnet: {
+            stock: 0,
+            orderQty: 15,
+            prepaid: 6,
+            costParts: { ticket: 2830, record: 2630, gongo: 3730 },
+        },
+        sellPrices: { photocard: 3000, keyring: 6000, magnet: 11000, fullset: 19000 },
+        packaging: {
+            opp: { qty: 100, price: 2400 },
+            backing: { qty: 20, price: 2990 },
+        },
+        investment: { sampleCost: 25210, includeSample: true },
+        salesAnalysis: { snapshots: [] },
+    };
+}
+
+function loadProduction() {
+    const raw = localStorage.getItem(PRODUCTION_STORAGE_KEY);
+    if (!raw) return defaultProduction();
+    try {
+        const parsed = JSON.parse(raw);
+        return { ...defaultProduction(), ...parsed };
+    } catch (err) {
+        console.warn('저장된 발주 관리 데이터를 읽지 못해 기본값을 사용합니다.', err);
+        return defaultProduction();
+    }
+}
+
+let production = loadProduction();
+
+function saveProduction() {
+    localStorage.setItem(PRODUCTION_STORAGE_KEY, JSON.stringify(production));
+}
+
+function won(n) {
+    return `${Math.round(n || 0).toLocaleString()}원`;
+}
+
+const PRODUCT_LABELS = { photocard: '포토카드', keyring: '키링', magnet: '자석세트', fullset: '올세트' };
+
+/* ---------------- 계산 로직 ---------------- */
+
+function getPhotocardTier() {
+    return production.photocard.tiers.find((t) => t.id === production.photocard.selectedTierId)
+        || production.photocard.tiers[0];
+}
+
+function photocardCalc() {
+    const tier = getPhotocardTier();
+    const bundleCount = production.photocard.bundleCount || 0;
+    if (!tier) return { totalSheets: 0, completeSets: 0, leftoverSheets: 0, totalCost: 0, unitCost: 0 };
+    const totalSheets = (tier.sheets || 0) * bundleCount;
+    const completeSets = Math.floor(totalSheets / 2);
+    const leftoverSheets = totalSheets % 2;
+    const totalCost = (tier.price || 0) * bundleCount;
+    const unitCost = completeSets ? totalCost / completeSets : 0;
+    return { totalSheets, completeSets, leftoverSheets, totalCost, unitCost };
+}
+
+function magnetUnitCost() {
+    const p = production.magnet.costParts;
+    return (p.ticket || 0) + (p.record || 0) + (p.gongo || 0);
+}
+
+function productUnitCost(key) {
+    if (key === 'photocard') return photocardCalc().unitCost;
+    if (key === 'keyring') return production.keyring.unitCost || 0;
+    if (key === 'magnet') return magnetUnitCost();
+    if (key === 'fullset') return productUnitCost('photocard') + productUnitCost('keyring') + productUnitCost('magnet');
+    return 0;
+}
+
+function productTotals(key) {
+    if (key === 'photocard') {
+        const calc = photocardCalc();
+        const totalHeld = (production.photocard.stock || 0) + calc.completeSets;
+        const availableOnsite = totalHeld - (production.photocard.prepaid || 0);
+        return { totalHeld, availableOnsite, totalCost: calc.totalCost };
+    }
+    if (key === 'keyring' || key === 'magnet') {
+        const state = production[key];
+        const totalHeld = (state.stock || 0) + (state.orderQty || 0);
+        const availableOnsite = totalHeld - (state.prepaid || 0);
+        const totalCost = (state.orderQty || 0) * productUnitCost(key);
+        return { totalHeld, availableOnsite, totalCost };
+    }
+    return { totalHeld: 0, availableOnsite: 0, totalCost: 0 };
+}
+
+function getActualSoldQty(key) {
+    return orders.reduce((sum, o) => sum + (o.items[key] || 0), 0);
+}
+
+function profitRow(key) {
+    const unitCost = productUnitCost(key);
+    const sellPrice = production.sellPrices[key] || 0;
+    const margin = sellPrice - unitCost;
+    if (key === 'fullset') {
+        const sold = getActualSoldQty('fullset');
+        const revenue = sellPrice * sold;
+        return { unitCost, sellPrice, margin, productionCost: 0, revenue, profit: revenue };
+    }
+    const totals = productTotals(key);
+    const revenue = sellPrice * totals.totalHeld;
+    const profit = revenue - totals.totalCost;
+    return { unitCost, sellPrice, margin, productionCost: totals.totalCost, revenue, profit };
+}
+
+function totalProductionCost() {
+    return ['photocard', 'keyring', 'magnet'].reduce((sum, key) => sum + productTotals(key).totalCost, 0);
+}
+
+function totalInvestment() {
+    const sample = production.investment.includeSample ? (production.investment.sampleCost || 0) : 0;
+    return sample + totalProductionCost();
+}
+
+function totalRevenue() {
+    return ['photocard', 'keyring', 'magnet', 'fullset'].reduce((sum, key) => sum + profitRow(key).revenue, 0);
+}
+
+function totalProfit() {
+    return totalRevenue() - totalProductionCost();
+}
+
+/* ---------------- DOM 참조 ---------------- */
+
+const sampleCostInput = document.getElementById('sampleCostInput');
+const includeSampleCheckbox = document.getElementById('includeSampleCheckbox');
+const productionCostDisplay = document.getElementById('productionCostDisplay');
+const totalInvestmentDisplay = document.getElementById('totalInvestmentDisplay');
+
+const photocardTierBody = document.getElementById('photocardTierBody');
+const addPhotocardTierBtn = document.getElementById('addPhotocardTierBtn');
+const photocardTierSelect = document.getElementById('photocardTierSelect');
+const photocardBundleCount = document.getElementById('photocardBundleCount');
+const pcTotalSheets = document.getElementById('pcTotalSheets');
+const pcCompleteSets = document.getElementById('pcCompleteSets');
+const pcLeftover = document.getElementById('pcLeftover');
+const pcTotalCost = document.getElementById('pcTotalCost');
+
+const keyringUnitCostInput = document.getElementById('keyringUnitCostInput');
+const magnetTicketInput = document.getElementById('magnetTicketInput');
+const magnetRecordInput = document.getElementById('magnetRecordInput');
+const magnetGongoInput = document.getElementById('magnetGongoInput');
+const magnetUnitCostDisplay = document.getElementById('magnetUnitCostDisplay');
+const oppPriceInput = document.getElementById('oppPriceInput');
+const backingPriceInput = document.getElementById('backingPriceInput');
+
+const sellPricePhotocard = document.getElementById('sellPricePhotocard');
+const sellPriceKeyring = document.getElementById('sellPriceKeyring');
+const sellPriceMagnet = document.getElementById('sellPriceMagnet');
+const sellPriceFullset = document.getElementById('sellPriceFullset');
+
+const profitTableBody = document.getElementById('profitTableBody');
+const profitTotalCost = document.getElementById('profitTotalCost');
+const profitTotalRevenue = document.getElementById('profitTotalRevenue');
+const profitTotalProfit = document.getElementById('profitTotalProfit');
+
+const salesAnalysisBody = document.getElementById('salesAnalysisBody');
+const saveSnapshotBtn = document.getElementById('saveSnapshotBtn');
+const snapshotList = document.getElementById('snapshotList');
+
+/* ---------------- 렌더링 ---------------- */
+
+function renderProductionInputs() {
+    sampleCostInput.value = production.investment.sampleCost;
+    includeSampleCheckbox.checked = production.investment.includeSample;
+
+    keyringUnitCostInput.value = production.keyring.unitCost;
+    magnetTicketInput.value = production.magnet.costParts.ticket;
+    magnetRecordInput.value = production.magnet.costParts.record;
+    magnetGongoInput.value = production.magnet.costParts.gongo;
+    oppPriceInput.value = production.packaging.opp.price;
+    backingPriceInput.value = production.packaging.backing.price;
+
+    sellPricePhotocard.value = production.sellPrices.photocard;
+    sellPriceKeyring.value = production.sellPrices.keyring;
+    sellPriceMagnet.value = production.sellPrices.magnet;
+    sellPriceFullset.value = production.sellPrices.fullset;
+
+    document.querySelectorAll('[data-prod-key]').forEach((el) => {
+        const key = el.dataset.prodKey;
+        const field = el.dataset.prodField;
+        el.value = production[key][field];
+    });
+
+    photocardBundleCount.value = production.photocard.bundleCount;
+}
+
+function renderPhotocardTiers() {
+    photocardTierBody.innerHTML = production.photocard.tiers.map((tier) => `
+        <tr>
+            <td><input type="text" class="tierLabelInput" data-tier-id="${escapeHtml(tier.id)}" value="${escapeHtml(tier.label)}"></td>
+            <td><input type="number" min="1" class="tierSheetsInput" data-tier-id="${escapeHtml(tier.id)}" value="${tier.sheets}"></td>
+            <td><input type="number" min="0" class="tierPriceInput" data-tier-id="${escapeHtml(tier.id)}" value="${tier.price}"></td>
+            <td><button type="button" class="tierDeleteBtn" data-tier-id="${escapeHtml(tier.id)}">삭제</button></td>
+        </tr>
+    `).join('');
+
+    photocardTierSelect.innerHTML = production.photocard.tiers.map((tier) =>
+        `<option value="${escapeHtml(tier.id)}">${escapeHtml(tier.label)}</option>`
+    ).join('');
+    photocardTierSelect.value = production.photocard.selectedTierId;
+}
+
+function renderProductionCalc() {
+    const calc = photocardCalc();
+    pcTotalSheets.textContent = calc.totalSheets;
+    pcCompleteSets.textContent = calc.completeSets;
+    pcLeftover.textContent = calc.leftoverSheets;
+    pcTotalCost.textContent = won(calc.totalCost);
+
+    magnetUnitCostDisplay.textContent = won(magnetUnitCost());
+
+    const pcTotals = productTotals('photocard');
+    document.querySelector('[data-prod-calc="photocard-order"]').textContent = calc.completeSets;
+    document.querySelector('[data-prod-calc="photocard-held"]').textContent = pcTotals.totalHeld;
+    document.querySelector('[data-prod-calc="photocard-onsite"]').textContent = pcTotals.availableOnsite;
+
+    ['keyring', 'magnet'].forEach((key) => {
+        const totals = productTotals(key);
+        document.querySelector(`[data-prod-calc="${key}-held"]`).textContent = totals.totalHeld;
+        document.querySelector(`[data-prod-calc="${key}-onsite"]`).textContent = totals.availableOnsite;
+    });
+
+    productionCostDisplay.textContent = won(totalProductionCost());
+    totalInvestmentDisplay.textContent = won(totalInvestment());
+
+    document.querySelector('[data-prod-stat="totalInvestment"]').textContent = won(totalInvestment());
+    document.querySelector('[data-prod-stat="totalCost"]').textContent = won(totalProductionCost());
+    document.querySelector('[data-prod-stat="totalRevenue"]').textContent = won(totalRevenue());
+    document.querySelector('[data-prod-stat="totalProfit"]').textContent = won(totalProfit());
+}
+
+function renderProfitTable() {
+    profitTableBody.innerHTML = ['photocard', 'keyring', 'magnet', 'fullset'].map((key) => {
+        const row = profitRow(key);
+        return `
+            <tr>
+                <td class="name-cell">${PRODUCT_LABELS[key]}</td>
+                <td>${won(row.unitCost)}</td>
+                <td>${won(row.sellPrice)}</td>
+                <td>${won(row.margin)}</td>
+                <td>${key === 'fullset' ? '-' : won(row.productionCost)}</td>
+                <td>${won(row.revenue)}</td>
+                <td>${won(row.profit)}</td>
+            </tr>
+        `;
+    }).join('');
+
+    profitTotalCost.textContent = won(totalProductionCost());
+    profitTotalRevenue.textContent = won(totalRevenue());
+    profitTotalProfit.textContent = won(totalProfit());
+}
+
+function renderSalesAnalysis() {
+    salesAnalysisBody.innerHTML = ['photocard', 'keyring', 'magnet', 'fullset'].map((key) => {
+        const sold = getActualSoldQty(key);
+        if (key === 'fullset') {
+            return `
+                <tr>
+                    <td class="name-cell">${PRODUCT_LABELS[key]}</td>
+                    <td>-</td>
+                    <td>${sold}</td>
+                    <td>-</td>
+                    <td>-</td>
+                </tr>
+            `;
+        }
+        const produced = productTotals(key).totalHeld;
+        const remaining = produced - sold;
+        const rate = produced ? `${((sold / produced) * 100).toFixed(1)}%` : '-';
+        return `
+            <tr>
+                <td class="name-cell">${PRODUCT_LABELS[key]}</td>
+                <td>${produced}</td>
+                <td>${sold}</td>
+                <td>${remaining}</td>
+                <td>${rate}</td>
+            </tr>
+        `;
+    }).join('');
+}
+
+function renderSnapshotList() {
+    const snapshots = production.salesAnalysis.snapshots;
+    if (!snapshots.length) {
+        snapshotList.innerHTML = '<li>저장된 스냅샷이 없습니다.</li>';
+        return;
+    }
+    snapshotList.innerHTML = snapshots.slice().reverse().map((snap) => {
+        const d = new Date(snap.savedAt);
+        const pad = (n) => String(n).padStart(2, '0');
+        const dateStr = `${d.getFullYear()}.${pad(d.getMonth() + 1)}.${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+        const summary = snap.rows.map((r) => `${PRODUCT_LABELS[r.key]} ${r.rate}`).join(' · ');
+        return `<li>${escapeHtml(dateStr)} — ${escapeHtml(summary)}</li>`;
+    }).join('');
+}
+
+function renderProduction() {
+    renderPhotocardTiers();
+    renderProductionInputs();
+    renderProductionCalc();
+    renderProfitTable();
+    renderSalesAnalysis();
+    renderSnapshotList();
+}
+
+/* ---------------- 이벤트 리스너 ---------------- */
+
+document.querySelectorAll('[data-prod-key]').forEach((el) => {
+    el.addEventListener('input', () => {
+        const key = el.dataset.prodKey;
+        const field = el.dataset.prodField;
+        production[key][field] = Number(el.value) || 0;
+        saveProduction();
+        renderProduction();
+    });
+});
+
+sampleCostInput.addEventListener('input', () => {
+    production.investment.sampleCost = Number(sampleCostInput.value) || 0;
+    saveProduction();
+    renderProduction();
+});
+
+includeSampleCheckbox.addEventListener('change', () => {
+    production.investment.includeSample = includeSampleCheckbox.checked;
+    saveProduction();
+    renderProduction();
+});
+
+keyringUnitCostInput.addEventListener('input', () => {
+    production.keyring.unitCost = Number(keyringUnitCostInput.value) || 0;
+    saveProduction();
+    renderProduction();
+});
+
+[
+    [magnetTicketInput, 'ticket'],
+    [magnetRecordInput, 'record'],
+    [magnetGongoInput, 'gongo'],
+].forEach(([el, part]) => {
+    el.addEventListener('input', () => {
+        production.magnet.costParts[part] = Number(el.value) || 0;
+        saveProduction();
+        renderProduction();
+    });
+});
+
+oppPriceInput.addEventListener('input', () => {
+    production.packaging.opp.price = Number(oppPriceInput.value) || 0;
+    saveProduction();
+    renderProduction();
+});
+
+backingPriceInput.addEventListener('input', () => {
+    production.packaging.backing.price = Number(backingPriceInput.value) || 0;
+    saveProduction();
+    renderProduction();
+});
+
+[
+    [sellPricePhotocard, 'photocard'],
+    [sellPriceKeyring, 'keyring'],
+    [sellPriceMagnet, 'magnet'],
+    [sellPriceFullset, 'fullset'],
+].forEach(([el, key]) => {
+    el.addEventListener('input', () => {
+        production.sellPrices[key] = Number(el.value) || 0;
+        saveProduction();
+        renderProduction();
+    });
+});
+
+photocardTierSelect.addEventListener('change', () => {
+    production.photocard.selectedTierId = photocardTierSelect.value;
+    saveProduction();
+    renderProduction();
+});
+
+photocardBundleCount.addEventListener('input', () => {
+    production.photocard.bundleCount = Number(photocardBundleCount.value) || 0;
+    saveProduction();
+    renderProduction();
+});
+
+addPhotocardTierBtn.addEventListener('click', () => {
+    const newId = `t${Date.now()}`;
+    production.photocard.tiers.push({ id: newId, label: '새 옵션', sheets: 1, price: 0 });
+    saveProduction();
+    renderProduction();
+});
+
+photocardTierBody.addEventListener('input', (e) => {
+    const id = e.target.dataset.tierId;
+    if (!id) return;
+    const tier = production.photocard.tiers.find((t) => t.id === id);
+    if (!tier) return;
+    if (e.target.classList.contains('tierLabelInput')) tier.label = e.target.value;
+    if (e.target.classList.contains('tierSheetsInput')) tier.sheets = Number(e.target.value) || 0;
+    if (e.target.classList.contains('tierPriceInput')) tier.price = Number(e.target.value) || 0;
+    saveProduction();
+    renderProductionCalc();
+    renderProfitTable();
+    renderSalesAnalysis();
+});
+
+photocardTierBody.addEventListener('click', (e) => {
+    const btn = e.target.closest('.tierDeleteBtn');
+    if (!btn) return;
+    if (production.photocard.tiers.length <= 1) {
+        alert('최소 1개의 발주 옵션은 남아있어야 합니다.');
+        return;
+    }
+    const id = btn.dataset.tierId;
+    production.photocard.tiers = production.photocard.tiers.filter((t) => t.id !== id);
+    if (production.photocard.selectedTierId === id) {
+        production.photocard.selectedTierId = production.photocard.tiers[0].id;
+    }
+    saveProduction();
+    renderProduction();
+});
+
+saveSnapshotBtn.addEventListener('click', () => {
+    const rows = ['photocard', 'keyring', 'magnet', 'fullset'].map((key) => {
+        const sold = getActualSoldQty(key);
+        const produced = key === 'fullset' ? null : productTotals(key).totalHeld;
+        const remaining = produced === null ? null : produced - sold;
+        const rate = produced ? `${((sold / produced) * 100).toFixed(1)}%` : '-';
+        return { key, produced, sold, remaining, rate };
+    });
+    production.salesAnalysis.snapshots.push({
+        id: Date.now(),
+        savedAt: new Date().toISOString(),
+        rows,
+    });
+    saveProduction();
+    renderSnapshotList();
+    showToast('판매 분석 스냅샷을 저장했습니다.');
+});
+
 /* ---------------- 초기화 ---------------- */
 
 shippingPage.classList.add('hidden');
+productionPage.classList.add('hidden');
 toggleShippingFieldsVisibility();
 renderAll();
 renderBackupStatus();
