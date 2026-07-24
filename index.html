@@ -135,13 +135,26 @@
         <section class="productionPage hidden">
             <h2>발주 관리 대시보드</h2>
 
-            <div class="mainListArea prodSummaryCards">
-                <ul>
-                    <li><p>총 투자금<span data-prod-stat="totalInvestment">0원</span></p></li>
-                    <li><p>총 제작비<span data-prod-stat="totalCost">0원</span></p></li>
-                    <li><p>총 매출<span data-prod-stat="totalRevenue">0원</span></p></li>
-                    <li><p>총 순이익<span data-prod-stat="totalProfit">0원</span></p></li>
-                </ul>
+            <div class="prodStatusGroups">
+                <div class="prodStatusGroup prodStatusCurrent">
+                    <h4>현재 현황 <span class="prodBadge prodBadgeCurrent">실제</span></h4>
+                    <div class="mainListArea">
+                        <ul>
+                            <li><p>총 투자금<span data-prod-stat="totalInvestment">0원</span></p></li>
+                            <li><p>현재 매출<span data-prod-stat="currentRevenue">0원</span></p></li>
+                            <li><p>현재 순손익<span data-prod-stat="currentProfit">0원</span></p></li>
+                        </ul>
+                    </div>
+                </div>
+                <div class="prodStatusGroup prodStatusExpected">
+                    <h4>예상 현황 <span class="prodBadge prodBadgeExpected">시뮬레이션</span></h4>
+                    <div class="mainListArea">
+                        <ul>
+                            <li><p>예상 총매출<span data-prod-stat="expectedRevenue">0원</span></p></li>
+                            <li><p>예상 순이익<span data-prod-stat="expectedProfit">0원</span></p></li>
+                        </ul>
+                    </div>
+                </div>
             </div>
 
             <div class="prodPanel">
@@ -189,6 +202,10 @@
                         </tr>
                     </tbody>
                 </table>
+                <div class="prodFieldRow">
+                    <button type="button" id="processOrderBtn" class="prodPrimaryBtn">발주 완료 처리</button>
+                    <span class="prodHint" id="lastOrderProcessedText">발주 완료 처리 이력이 없습니다.</span>
+                </div>
                 <p class="prodHint">※ 총보유 = 현재재고 + 발주 · 현장판매 = 총보유 - 선입금 · 포토카드의 '발주'는 아래 발주 옵션에서 자동 계산됩니다.</p>
             </div>
 
@@ -259,15 +276,49 @@
                         </tr>
                     </tfoot>
                 </table>
-                <p class="prodHint">※ 올세트 예상매출/순이익은 실제 등록된 주문 수량 기준이며, 포토카드/키링/자석세트는 발주 시뮬레이션(총보유 수량) 기준입니다.</p>
+                <p class="prodHint">※ 올세트 예상매출은 실제 주문 수량(재고 한도 내)만큼 먼저 반영되고, 포토카드/키링/자석세트 예상매출은 올세트로 반영된 수량을 제외한 나머지 재고 기준으로 계산되어 서로 중복 집계되지 않습니다. 올세트 자체의 제작비는 포토카드+키링+자석세트 제작비에 이미 포함되어 있으므로 별도로 합산하지 않습니다.</p>
             </div>
 
             <div class="prodPanel">
                 <h3>판매 분석</h3>
                 <table class="prodTable">
-                    <thead><tr><th>상품</th><th>제작 수량</th><th>판매 수량</th><th>남은 재고</th><th>판매율</th></tr></thead>
-                    <tbody id="salesAnalysisBody"></tbody>
+                    <thead><tr><th>상품</th><th>제작 수량</th><th>수동 보정</th><th>판매 수량</th><th>남은 재고</th><th>판매율</th></tr></thead>
+                    <tbody>
+                        <tr>
+                            <td class="name-cell">포토카드</td>
+                            <td class="prodAutoCell" data-sales-calc="photocard-produced">0</td>
+                            <td><input type="number" data-manual-key="photocard" value="0"></td>
+                            <td class="prodAutoCell" data-sales-calc="photocard-sold">0</td>
+                            <td class="prodAutoCell" data-sales-calc="photocard-remaining">0</td>
+                            <td class="prodAutoCell" data-sales-calc="photocard-rate">-</td>
+                        </tr>
+                        <tr>
+                            <td class="name-cell">키링</td>
+                            <td class="prodAutoCell" data-sales-calc="keyring-produced">0</td>
+                            <td><input type="number" data-manual-key="keyring" value="0"></td>
+                            <td class="prodAutoCell" data-sales-calc="keyring-sold">0</td>
+                            <td class="prodAutoCell" data-sales-calc="keyring-remaining">0</td>
+                            <td class="prodAutoCell" data-sales-calc="keyring-rate">-</td>
+                        </tr>
+                        <tr>
+                            <td class="name-cell">자석세트</td>
+                            <td class="prodAutoCell" data-sales-calc="magnet-produced">0</td>
+                            <td><input type="number" data-manual-key="magnet" value="0"></td>
+                            <td class="prodAutoCell" data-sales-calc="magnet-sold">0</td>
+                            <td class="prodAutoCell" data-sales-calc="magnet-remaining">0</td>
+                            <td class="prodAutoCell" data-sales-calc="magnet-rate">-</td>
+                        </tr>
+                        <tr>
+                            <td class="name-cell">올세트</td>
+                            <td>-</td>
+                            <td>-</td>
+                            <td class="prodAutoCell" data-sales-calc="fullset-sold">0</td>
+                            <td>-</td>
+                            <td>-</td>
+                        </tr>
+                    </tbody>
                 </table>
+                <p class="prodHint">※ 판매 수량 = 단품 판매 + 올세트 판매(올세트 1개 판매 시 포토카드/키링/자석세트 각 +1) + 수동 보정</p>
                 <div class="prodFieldRow">
                     <button type="button" id="saveSnapshotBtn">현재 스냅샷 저장</button>
                     <span class="prodHint">행사 종료 후 저장해두면 다음 발주 추천 기능(추후 제공)의 기반 데이터로 사용됩니다.</span>

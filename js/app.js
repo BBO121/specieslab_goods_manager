@@ -931,6 +931,8 @@ function defaultProduction() {
         },
         investment: { sampleCost: 25210, includeSample: true },
         salesAnalysis: { snapshots: [] },
+        manualAdjustment: { photocard: 0, keyring: 0, magnet: 0 },
+        orderHistory: [],
     };
 }
 
@@ -954,6 +956,12 @@ function saveProduction() {
 
 function won(n) {
     return `${Math.round(n || 0).toLocaleString()}원`;
+}
+
+function formatDateTime(iso) {
+    const d = new Date(iso);
+    const pad = (n) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}.${pad(d.getMonth() + 1)}.${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 const PRODUCT_LABELS = { photocard: '포토카드', keyring: '키링', magnet: '자석세트', fullset: '올세트' };
@@ -1011,17 +1019,40 @@ function getActualSoldQty(key) {
     return orders.reduce((sum, o) => sum + (o.items[key] || 0), 0);
 }
 
+function getEffectiveSoldQty(key) {
+    if (key === 'fullset') return getActualSoldQty('fullset');
+    const manual = (production.manualAdjustment && production.manualAdjustment[key]) || 0;
+    return getActualSoldQty(key) + getActualSoldQty('fullset') + manual;
+}
+
+// 올세트 판매분(실제 주문 수량 기준, 재고 한도 내)을 먼저 차감하고
+// 남은 재고만 단품으로 판매된다고 가정 — 단품/올세트 예상매출 중복 집계 방지
+function salesPlan() {
+    const heldPhotocard = productTotals('photocard').totalHeld;
+    const heldKeyring = productTotals('keyring').totalHeld;
+    const heldMagnet = productTotals('magnet').totalHeld;
+    const fullsetActual = getActualSoldQty('fullset');
+    const fullsetQty = Math.max(0, Math.min(fullsetActual, heldPhotocard, heldKeyring, heldMagnet));
+    return {
+        fullsetQty,
+        photocardQty: heldPhotocard - fullsetQty,
+        keyringQty: heldKeyring - fullsetQty,
+        magnetQty: heldMagnet - fullsetQty,
+    };
+}
+
 function profitRow(key) {
     const unitCost = productUnitCost(key);
     const sellPrice = production.sellPrices[key] || 0;
     const margin = sellPrice - unitCost;
+    const plan = salesPlan();
     if (key === 'fullset') {
-        const sold = getActualSoldQty('fullset');
-        const revenue = sellPrice * sold;
+        const revenue = sellPrice * plan.fullsetQty;
         return { unitCost, sellPrice, margin, productionCost: 0, revenue, profit: revenue };
     }
     const totals = productTotals(key);
-    const revenue = sellPrice * totals.totalHeld;
+    const qty = plan[`${key}Qty`];
+    const revenue = sellPrice * qty;
     const profit = revenue - totals.totalCost;
     return { unitCost, sellPrice, margin, productionCost: totals.totalCost, revenue, profit };
 }
@@ -1035,12 +1066,22 @@ function totalInvestment() {
     return sample + totalProductionCost();
 }
 
-function totalRevenue() {
+// 현재 현황: 실제 등록된 주문 내역 기준
+function getCurrentRevenue() {
+    return orders.reduce((sum, o) => sum + calcPrice(o.items), 0);
+}
+
+function currentProfit() {
+    return getCurrentRevenue() - totalInvestment();
+}
+
+// 예상 현황: 발주 시뮬레이션(총보유 수량 전량 판매 가정) 기준
+function expectedRevenue() {
     return ['photocard', 'keyring', 'magnet', 'fullset'].reduce((sum, key) => sum + profitRow(key).revenue, 0);
 }
 
-function totalProfit() {
-    return totalRevenue() - totalProductionCost();
+function expectedProfit() {
+    return expectedRevenue() - totalInvestment();
 }
 
 /* ---------------- DOM 참조 ---------------- */
@@ -1077,9 +1118,11 @@ const profitTotalCost = document.getElementById('profitTotalCost');
 const profitTotalRevenue = document.getElementById('profitTotalRevenue');
 const profitTotalProfit = document.getElementById('profitTotalProfit');
 
-const salesAnalysisBody = document.getElementById('salesAnalysisBody');
 const saveSnapshotBtn = document.getElementById('saveSnapshotBtn');
 const snapshotList = document.getElementById('snapshotList');
+
+const processOrderBtn = document.getElementById('processOrderBtn');
+const lastOrderProcessedText = document.getElementById('lastOrderProcessedText');
 
 /* ---------------- 렌더링 ---------------- */
 
@@ -1103,6 +1146,11 @@ function renderProductionInputs() {
         const key = el.dataset.prodKey;
         const field = el.dataset.prodField;
         el.value = production[key][field];
+    });
+
+    document.querySelectorAll('[data-manual-key]').forEach((el) => {
+        const key = el.dataset.manualKey;
+        el.value = (production.manualAdjustment && production.manualAdjustment[key]) || 0;
     });
 
     photocardBundleCount.value = production.photocard.bundleCount;
@@ -1148,9 +1196,10 @@ function renderProductionCalc() {
     totalInvestmentDisplay.textContent = won(totalInvestment());
 
     document.querySelector('[data-prod-stat="totalInvestment"]').textContent = won(totalInvestment());
-    document.querySelector('[data-prod-stat="totalCost"]').textContent = won(totalProductionCost());
-    document.querySelector('[data-prod-stat="totalRevenue"]').textContent = won(totalRevenue());
-    document.querySelector('[data-prod-stat="totalProfit"]').textContent = won(totalProfit());
+    document.querySelector('[data-prod-stat="currentRevenue"]').textContent = won(getCurrentRevenue());
+    document.querySelector('[data-prod-stat="currentProfit"]').textContent = won(currentProfit());
+    document.querySelector('[data-prod-stat="expectedRevenue"]').textContent = won(expectedRevenue());
+    document.querySelector('[data-prod-stat="expectedProfit"]').textContent = won(expectedProfit());
 }
 
 function renderProfitTable() {
@@ -1170,37 +1219,40 @@ function renderProfitTable() {
     }).join('');
 
     profitTotalCost.textContent = won(totalProductionCost());
-    profitTotalRevenue.textContent = won(totalRevenue());
-    profitTotalProfit.textContent = won(totalProfit());
+    profitTotalRevenue.textContent = won(expectedRevenue());
+    profitTotalProfit.textContent = won(expectedProfit());
 }
 
 function renderSalesAnalysis() {
-    salesAnalysisBody.innerHTML = ['photocard', 'keyring', 'magnet', 'fullset'].map((key) => {
-        const sold = getActualSoldQty(key);
-        if (key === 'fullset') {
-            return `
-                <tr>
-                    <td class="name-cell">${PRODUCT_LABELS[key]}</td>
-                    <td>-</td>
-                    <td>${sold}</td>
-                    <td>-</td>
-                    <td>-</td>
-                </tr>
-            `;
-        }
+    ['photocard', 'keyring', 'magnet'].forEach((key) => {
         const produced = productTotals(key).totalHeld;
+        const sold = getEffectiveSoldQty(key);
         const remaining = produced - sold;
         const rate = produced ? `${((sold / produced) * 100).toFixed(1)}%` : '-';
-        return `
-            <tr>
-                <td class="name-cell">${PRODUCT_LABELS[key]}</td>
-                <td>${produced}</td>
-                <td>${sold}</td>
-                <td>${remaining}</td>
-                <td>${rate}</td>
-            </tr>
-        `;
-    }).join('');
+        document.querySelector(`[data-sales-calc="${key}-produced"]`).textContent = produced;
+        document.querySelector(`[data-sales-calc="${key}-sold"]`).textContent = sold;
+        document.querySelector(`[data-sales-calc="${key}-remaining"]`).textContent = remaining;
+        document.querySelector(`[data-sales-calc="${key}-rate"]`).textContent = rate;
+    });
+    document.querySelector('[data-sales-calc="fullset-sold"]').textContent = getActualSoldQty('fullset');
+}
+
+function buildSalesAnalysisRows() {
+    return ['photocard', 'keyring', 'magnet', 'fullset'].map((key) => {
+        const sold = getEffectiveSoldQty(key);
+        const produced = key === 'fullset' ? null : productTotals(key).totalHeld;
+        const remaining = produced === null ? null : produced - sold;
+        const rate = produced ? `${((sold / produced) * 100).toFixed(1)}%` : '-';
+        return { key, produced, sold, remaining, rate };
+    });
+}
+
+function renderOrderHistoryStatus() {
+    const history = production.orderHistory;
+    const last = history[history.length - 1];
+    lastOrderProcessedText.textContent = last
+        ? `마지막 발주 완료 처리: ${formatDateTime(last.processedAt)}`
+        : '발주 완료 처리 이력이 없습니다.';
 }
 
 function renderSnapshotList() {
@@ -1210,11 +1262,11 @@ function renderSnapshotList() {
         return;
     }
     snapshotList.innerHTML = snapshots.slice().reverse().map((snap) => {
-        const d = new Date(snap.savedAt);
-        const pad = (n) => String(n).padStart(2, '0');
-        const dateStr = `${d.getFullYear()}.${pad(d.getMonth() + 1)}.${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
-        const summary = snap.rows.map((r) => `${PRODUCT_LABELS[r.key]} ${r.rate}`).join(' · ');
-        return `<li>${escapeHtml(dateStr)} — ${escapeHtml(summary)}</li>`;
+        const dateStr = formatDateTime(snap.savedAt);
+        const rateSummary = snap.rows.filter((r) => r.rate !== '-').map((r) => `${PRODUCT_LABELS[r.key]} ${r.rate}`).join(' · ');
+        const s = snap.summary;
+        const profitSummary = s ? ` / 현재순손익 ${won(s.currentProfit)} · 예상순이익 ${won(s.expectedProfit)}` : '';
+        return `<li>${escapeHtml(dateStr)} — ${escapeHtml(rateSummary)}${escapeHtml(profitSummary)}</li>`;
     }).join('');
 }
 
@@ -1225,6 +1277,7 @@ function renderProduction() {
     renderProfitTable();
     renderSalesAnalysis();
     renderSnapshotList();
+    renderOrderHistoryStatus();
 }
 
 /* ---------------- 이벤트 리스너 ---------------- */
@@ -1343,18 +1396,58 @@ photocardTierBody.addEventListener('click', (e) => {
     renderProduction();
 });
 
-saveSnapshotBtn.addEventListener('click', () => {
-    const rows = ['photocard', 'keyring', 'magnet', 'fullset'].map((key) => {
-        const sold = getActualSoldQty(key);
-        const produced = key === 'fullset' ? null : productTotals(key).totalHeld;
-        const remaining = produced === null ? null : produced - sold;
-        const rate = produced ? `${((sold / produced) * 100).toFixed(1)}%` : '-';
-        return { key, produced, sold, remaining, rate };
+document.querySelectorAll('[data-manual-key]').forEach((el) => {
+    el.addEventListener('input', () => {
+        const key = el.dataset.manualKey;
+        production.manualAdjustment[key] = Number(el.value) || 0;
+        saveProduction();
+        renderProduction();
     });
+});
+
+processOrderBtn.addEventListener('click', () => {
+    if (!confirm('현재 입력된 발주 수량을 재고에 반영하시겠습니까?')) return;
+
+    const pcCalc = photocardCalc();
+    const before = {
+        photocard: {
+            stock: production.photocard.stock,
+            bundleCount: production.photocard.bundleCount,
+            selectedTierId: production.photocard.selectedTierId,
+            completeSets: pcCalc.completeSets,
+        },
+        keyring: { stock: production.keyring.stock, orderQty: production.keyring.orderQty },
+        magnet: { stock: production.magnet.stock, orderQty: production.magnet.orderQty },
+    };
+
+    production.photocard.stock = (production.photocard.stock || 0) + pcCalc.completeSets;
+    production.photocard.bundleCount = 0;
+
+    production.keyring.stock = (production.keyring.stock || 0) + (production.keyring.orderQty || 0);
+    production.keyring.orderQty = 0;
+
+    production.magnet.stock = (production.magnet.stock || 0) + (production.magnet.orderQty || 0);
+    production.magnet.orderQty = 0;
+
+    production.orderHistory.push({ id: Date.now(), processedAt: new Date().toISOString(), before });
+
+    saveProduction();
+    renderProduction();
+    showToast('발주 수량이 현재 재고에 반영되었습니다.');
+});
+
+saveSnapshotBtn.addEventListener('click', () => {
     production.salesAnalysis.snapshots.push({
         id: Date.now(),
         savedAt: new Date().toISOString(),
-        rows,
+        summary: {
+            currentRevenue: getCurrentRevenue(),
+            totalInvestment: totalInvestment(),
+            currentProfit: currentProfit(),
+            expectedRevenue: expectedRevenue(),
+            expectedProfit: expectedProfit(),
+        },
+        rows: buildSalesAnalysisRows(),
     });
     saveProduction();
     renderSnapshotList();
