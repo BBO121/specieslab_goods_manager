@@ -1003,8 +1003,18 @@ function magnetUnitCost() {
     return (p.ticket || 0) + (p.record || 0) + (p.gongo || 0);
 }
 
+// 포토카드 세트당 단가: 선택된 발주 옵션(가격 ÷ 완성 세트 수) 기준 고정 단가.
+// 발주 묶음 수(bundleCount)에 좌우되지 않는 안정적인 값으로,
+// 재고 가치 평가와 마진 계산에 사용된다.
+function photocardUnitCost() {
+    const tier = getPhotocardTier();
+    if (!tier) return 0;
+    const setsPerBundle = Math.floor((tier.sheets || 0) / 2);
+    return setsPerBundle ? (tier.price || 0) / setsPerBundle : 0;
+}
+
 function productUnitCost(key) {
-    if (key === 'photocard') return photocardCalc().unitCost;
+    if (key === 'photocard') return photocardUnitCost();
     if (key === 'keyring') return production.keyring.unitCost || 0;
     if (key === 'magnet') return magnetUnitCost();
     if (key === 'fullset') return productUnitCost('photocard') + productUnitCost('keyring') + productUnitCost('magnet');
@@ -1016,16 +1026,15 @@ function productTotals(key) {
         const calc = photocardCalc();
         const totalHeld = (production.photocard.stock || 0) + calc.completeSets;
         const availableOnsite = totalHeld - (production.photocard.prepaid || 0);
-        return { totalHeld, availableOnsite, totalCost: calc.totalCost };
+        return { totalHeld, availableOnsite };
     }
     if (key === 'keyring' || key === 'magnet') {
         const state = production[key];
         const totalHeld = (state.stock || 0) + (state.orderQty || 0);
         const availableOnsite = totalHeld - (state.prepaid || 0);
-        const totalCost = (state.orderQty || 0) * productUnitCost(key);
-        return { totalHeld, availableOnsite, totalCost };
+        return { totalHeld, availableOnsite };
     }
-    return { totalHeld: 0, availableOnsite: 0, totalCost: 0 };
+    return { totalHeld: 0, availableOnsite: 0 };
 }
 
 function getActualSoldQty(key) {
@@ -1063,42 +1072,23 @@ function profitRow(key) {
         const revenue = sellPrice * plan.fullsetQty;
         return { unitCost, sellPrice, margin, productionCost: 0, revenue, profit: revenue };
     }
-    const productionCost = productTotalCostWithHistory(key);
+    const productionCost = stockProductionCost(key);
     const qty = plan[`${key}Qty`];
     const revenue = sellPrice * qty;
     const profit = revenue - productionCost;
     return { unitCost, sellPrice, margin, productionCost, revenue, profit };
 }
 
-// 누적 확정 제작비: 발주 완료 처리된 이력에서 다시 계산(이력이 유일한 근거 데이터)
-// 재고가 판매/소진되어도 이미 발생한 제작비이므로 줄어들지 않음
-function confirmedProductCost(key) {
-    return production.orderHistory.reduce(
-        (sum, entry) => sum + ((entry.products && entry.products[key] && entry.products[key].cost) || 0),
-        0
-    );
+// 본품 제작비는 현재 보유 중인 재고(현재재고) 기준으로 계산한다.
+// 발주 수량(아직 재고에 반영되지 않은 예정분)은 포함하지 않으며,
+// 발주 완료 처리로 재고가 늘어나야 비로소 제작비/투자금에 반영된다.
+// 재고는 판매(주문 등록)로 자동 차감되지 않으므로, 판매 여부와 무관하게 유지된다.
+function stockProductionCost(key) {
+    return (production[key].stock || 0) * productUnitCost(key);
 }
 
-function confirmedProductionCost() {
-    return ['photocard', 'keyring', 'magnet'].reduce((sum, key) => sum + confirmedProductCost(key), 0);
-}
-
-// 발주 예정 비용: 아직 재고에 반영하지 않은, 현재 입력된 발주 수량 기준 예상 비용
-function pendingProductCost(key) {
-    return productTotals(key).totalCost;
-}
-
-function pendingProductionCost() {
-    return ['photocard', 'keyring', 'magnet'].reduce((sum, key) => sum + pendingProductCost(key), 0);
-}
-
-function productTotalCostWithHistory(key) {
-    return confirmedProductCost(key) + pendingProductCost(key);
-}
-
-// 본품 제작비 = 누적 확정 제작비 + 현재 발주 예정 비용
 function totalProductionCost() {
-    return confirmedProductionCost() + pendingProductionCost();
+    return ['photocard', 'keyring', 'magnet'].reduce((sum, key) => sum + stockProductionCost(key), 0);
 }
 
 function operatingCostsTotal() {
@@ -1151,8 +1141,6 @@ function expectedProfit() {
 
 const sampleCostInput = document.getElementById('sampleCostInput');
 const includeSampleCheckbox = document.getElementById('includeSampleCheckbox');
-const confirmedCostDisplay = document.getElementById('confirmedCostDisplay');
-const pendingCostDisplay = document.getElementById('pendingCostDisplay');
 const productionCostDisplay = document.getElementById('productionCostDisplay');
 const totalInvestmentDisplay = document.getElementById('totalInvestmentDisplay');
 
@@ -1265,8 +1253,6 @@ function renderProductionCalc() {
         document.querySelector(`[data-prod-calc="${key}-onsite"]`).textContent = totals.availableOnsite;
     });
 
-    confirmedCostDisplay.textContent = won(confirmedProductionCost());
-    pendingCostDisplay.textContent = won(pendingProductionCost());
     productionCostDisplay.textContent = won(totalProductionCost());
     operatingCostsDisplay.textContent = won(operatingCostsTotal());
     sampleCostSummaryDisplay.textContent = won(production.investment.includeSample ? (production.investment.sampleCost || 0) : 0);
