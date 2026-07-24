@@ -164,11 +164,14 @@
                     <label class="toggle"><input type="checkbox" id="includeSampleCheckbox"> 샘플 제작비를 투자금에 포함</label>
                 </div>
                 <div class="prodSummaryLine">
+                    <span>누적 확정 제작비<b id="confirmedCostDisplay">0원</b></span>
+                    <span>현재 발주 예정 비용<b id="pendingCostDisplay">0원</b></span>
                     <span>본품 제작비<b id="productionCostDisplay">0원</b></span>
                     <span>운영비(투자금 포함분)<b id="operatingCostsDisplay">0원</b></span>
                     <span>샘플 제작비<b id="sampleCostSummaryDisplay">0원</b></span>
                     <span>총 투자금<b id="totalInvestmentDisplay">0원</b></span>
                 </div>
+                <p class="prodHint">※ 본품 제작비 = 누적 확정 제작비(발주 완료 이력) + 현재 발주 예정 비용(입력된 발주 수량 기준). 발주 완료 처리를 해도 확정된 제작비는 줄어들지 않습니다.</p>
             </div>
 
             <div class="prodPanel">

@@ -1063,15 +1063,42 @@ function profitRow(key) {
         const revenue = sellPrice * plan.fullsetQty;
         return { unitCost, sellPrice, margin, productionCost: 0, revenue, profit: revenue };
     }
-    const totals = productTotals(key);
+    const productionCost = productTotalCostWithHistory(key);
     const qty = plan[`${key}Qty`];
     const revenue = sellPrice * qty;
-    const profit = revenue - totals.totalCost;
-    return { unitCost, sellPrice, margin, productionCost: totals.totalCost, revenue, profit };
+    const profit = revenue - productionCost;
+    return { unitCost, sellPrice, margin, productionCost, revenue, profit };
 }
 
+// 누적 확정 제작비: 발주 완료 처리된 이력에서 다시 계산(이력이 유일한 근거 데이터)
+// 재고가 판매/소진되어도 이미 발생한 제작비이므로 줄어들지 않음
+function confirmedProductCost(key) {
+    return production.orderHistory.reduce(
+        (sum, entry) => sum + ((entry.products && entry.products[key] && entry.products[key].cost) || 0),
+        0
+    );
+}
+
+function confirmedProductionCost() {
+    return ['photocard', 'keyring', 'magnet'].reduce((sum, key) => sum + confirmedProductCost(key), 0);
+}
+
+// 발주 예정 비용: 아직 재고에 반영하지 않은, 현재 입력된 발주 수량 기준 예상 비용
+function pendingProductCost(key) {
+    return productTotals(key).totalCost;
+}
+
+function pendingProductionCost() {
+    return ['photocard', 'keyring', 'magnet'].reduce((sum, key) => sum + pendingProductCost(key), 0);
+}
+
+function productTotalCostWithHistory(key) {
+    return confirmedProductCost(key) + pendingProductCost(key);
+}
+
+// 본품 제작비 = 누적 확정 제작비 + 현재 발주 예정 비용
 function totalProductionCost() {
-    return ['photocard', 'keyring', 'magnet'].reduce((sum, key) => sum + productTotals(key).totalCost, 0);
+    return confirmedProductionCost() + pendingProductionCost();
 }
 
 function operatingCostsTotal() {
@@ -1124,6 +1151,8 @@ function expectedProfit() {
 
 const sampleCostInput = document.getElementById('sampleCostInput');
 const includeSampleCheckbox = document.getElementById('includeSampleCheckbox');
+const confirmedCostDisplay = document.getElementById('confirmedCostDisplay');
+const pendingCostDisplay = document.getElementById('pendingCostDisplay');
 const productionCostDisplay = document.getElementById('productionCostDisplay');
 const totalInvestmentDisplay = document.getElementById('totalInvestmentDisplay');
 
@@ -1236,6 +1265,8 @@ function renderProductionCalc() {
         document.querySelector(`[data-prod-calc="${key}-onsite"]`).textContent = totals.availableOnsite;
     });
 
+    confirmedCostDisplay.textContent = won(confirmedProductionCost());
+    pendingCostDisplay.textContent = won(pendingProductionCost());
     productionCostDisplay.textContent = won(totalProductionCost());
     operatingCostsDisplay.textContent = won(operatingCostsTotal());
     sampleCostSummaryDisplay.textContent = won(production.investment.includeSample ? (production.investment.sampleCost || 0) : 0);
@@ -1507,34 +1538,54 @@ document.querySelectorAll('[data-manual-key]').forEach((el) => {
 processOrderBtn.addEventListener('click', () => {
     if (!confirm('현재 입력된 발주 수량을 재고에 반영하시겠습니까?')) return;
 
+    // 1. 처리 시점의 상품별 발주 수량과 제작비를 계산
+    const tier = getPhotocardTier();
     const pcCalc = photocardCalc();
-    const before = {
-        photocard: {
-            stock: production.photocard.stock,
-            bundleCount: production.photocard.bundleCount,
-            selectedTierId: production.photocard.selectedTierId,
-            completeSets: pcCalc.completeSets,
-        },
-        keyring: { stock: production.keyring.stock, orderQty: production.keyring.orderQty },
-        magnet: { stock: production.magnet.stock, orderQty: production.magnet.orderQty },
+    const keyringOrderQty = production.keyring.orderQty || 0;
+    const keyringUnitCostVal = production.keyring.unitCost || 0;
+    const keyringCost = keyringOrderQty * keyringUnitCostVal;
+    const magnetOrderQty = production.magnet.orderQty || 0;
+    const magnetUnitCostVal = magnetUnitCost();
+    const magnetCost = magnetOrderQty * magnetUnitCostVal;
+    const totalConfirmedCost = pcCalc.totalCost + keyringCost + magnetCost;
+
+    const photocardBundleCountUsed = production.photocard.bundleCount || 0;
+    const stockBefore = {
+        photocard: production.photocard.stock || 0,
+        keyring: production.keyring.stock || 0,
+        magnet: production.magnet.stock || 0,
     };
 
-    production.photocard.stock = (production.photocard.stock || 0) + pcCalc.completeSets;
+    // 3. 발주 수량을 현재 재고에 추가 · 4. 발주 수량을 0으로 초기화
+    production.photocard.stock = stockBefore.photocard + pcCalc.completeSets;
     production.photocard.bundleCount = 0;
 
-    production.keyring.stock = (production.keyring.stock || 0) + (production.keyring.orderQty || 0);
+    production.keyring.stock = stockBefore.keyring + keyringOrderQty;
     production.keyring.orderQty = 0;
 
-    production.magnet.stock = (production.magnet.stock || 0) + (production.magnet.orderQty || 0);
+    production.magnet.stock = stockBefore.magnet + magnetOrderQty;
     production.magnet.orderQty = 0;
 
-    const after = {
-        photocard: { stock: production.photocard.stock, bundleCount: production.photocard.bundleCount },
-        keyring: { stock: production.keyring.stock, orderQty: production.keyring.orderQty },
-        magnet: { stock: production.magnet.stock, orderQty: production.magnet.orderQty },
-    };
-
-    production.orderHistory.push({ id: Date.now(), processedAt: new Date().toISOString(), before, after });
+    // 2. + 5. 이번 발주의 제작비를 이력에 누적 저장(이 값이 누적 확정 제작비의 근거가 됨)
+    production.orderHistory.push({
+        id: Date.now(),
+        processedAt: new Date().toISOString(),
+        photocardTierId: tier ? tier.id : null,
+        photocardTierLabel: tier ? tier.label : '',
+        photocardBundleCount: photocardBundleCountUsed,
+        products: {
+            photocard: { orderQty: pcCalc.completeSets, unitCost: pcCalc.unitCost, cost: pcCalc.totalCost },
+            keyring: { orderQty: keyringOrderQty, unitCost: keyringUnitCostVal, cost: keyringCost },
+            magnet: { orderQty: magnetOrderQty, unitCost: magnetUnitCostVal, cost: magnetCost },
+        },
+        totalConfirmedCost,
+        stockBefore,
+        stockAfter: {
+            photocard: production.photocard.stock,
+            keyring: production.keyring.stock,
+            magnet: production.magnet.stock,
+        },
+    });
 
     saveProduction();
     renderProduction();

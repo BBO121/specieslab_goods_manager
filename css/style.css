@@ -860,7 +860,8 @@ tr.excel-row-error {
 
 .prodSummaryLine {
     display: flex;
-    gap: 24px;
+    flex-wrap: wrap;
+    gap: 10px 24px;
     font-size: 14px;
     padding-top: 8px;
     margin-top: 2px;
