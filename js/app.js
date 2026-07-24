@@ -925,14 +925,27 @@ function defaultProduction() {
             costParts: { ticket: 2830, record: 2630, gongo: 3730 },
         },
         sellPrices: { photocard: 3000, keyring: 6000, magnet: 11000, fullset: 19000 },
-        packaging: {
-            opp: { qty: 100, price: 2400 },
-            backing: { qty: 20, price: 2990 },
-        },
         investment: { sampleCost: 25210, includeSample: true },
         salesAnalysis: { snapshots: [] },
         manualAdjustment: { photocard: 0, keyring: 0, magnet: 0 },
         orderHistory: [],
+        operatingCosts: {
+            items: [
+                { id: 'backing', label: '뒷대지', amount: 0, includeInInvestment: true, memo: '' },
+                { id: 'opp', label: 'OPP', amount: 0, includeInInvestment: true, memo: '' },
+                { id: 'shipping', label: '배송비', amount: 0, includeInInvestment: false, memo: '' },
+                { id: 'booth', label: '부스비', amount: 0, includeInInvestment: true, memo: '' },
+                { id: 'transport', label: '교통비', amount: 0, includeInInvestment: true, memo: '' },
+                { id: 'etc', label: '기타', amount: 0, includeInInvestment: true, memo: '' },
+            ],
+        },
+        operationalStock: {
+            items: [
+                { id: 'backing', label: '뒷대지', stock: 13, orderUnit: 20, bundlePrice: 2990, bundleCount: 3, manualAdjustment: 0 },
+                { id: 'opp', label: 'OPP 봉투', stock: 96, orderUnit: 100, bundlePrice: 2400, bundleCount: 0, manualAdjustment: 0 },
+            ],
+        },
+        operationalStockHistory: [],
     };
 }
 
@@ -1061,9 +1074,32 @@ function totalProductionCost() {
     return ['photocard', 'keyring', 'magnet'].reduce((sum, key) => sum + productTotals(key).totalCost, 0);
 }
 
+function operatingCostsTotal() {
+    return production.operatingCosts.items.reduce(
+        (sum, item) => sum + (item.includeInInvestment ? (item.amount || 0) : 0),
+        0
+    );
+}
+
 function totalInvestment() {
     const sample = production.investment.includeSample ? (production.investment.sampleCost || 0) : 0;
-    return sample + totalProductionCost();
+    return sample + totalProductionCost() + operatingCostsTotal();
+}
+
+// 운영 재고(뒷대지/OPP 등) 계산: 상품 1개당 자재 1개 소모 기준
+function totalProductUnitsHeld() {
+    return productTotals('photocard').totalHeld + productTotals('keyring').totalHeld + productTotals('magnet').totalHeld;
+}
+
+function operationalStockCalc(item) {
+    const expectedUsage = totalProductUnitsHeld() * (item.usagePerProductUnit ?? 1);
+    const finalUsage = expectedUsage + (item.manualAdjustment || 0);
+    const incoming = (item.orderUnit || 0) * (item.bundleCount || 0);
+    const remainingAfterUse = (item.stock || 0) + incoming - finalUsage;
+    const shortage = Math.max(0, finalUsage - (item.stock || 0));
+    const recommendedBundles = (item.orderUnit || 0) > 0 ? Math.ceil(shortage / item.orderUnit) : 0;
+    const totalOrderCost = (item.bundlePrice || 0) * (item.bundleCount || 0);
+    return { expectedUsage, finalUsage, incoming, remainingAfterUse, shortage, recommendedBundles, totalOrderCost };
 }
 
 // 현재 현황: 실제 등록된 주문 내역 기준
@@ -1105,8 +1141,18 @@ const magnetTicketInput = document.getElementById('magnetTicketInput');
 const magnetRecordInput = document.getElementById('magnetRecordInput');
 const magnetGongoInput = document.getElementById('magnetGongoInput');
 const magnetUnitCostDisplay = document.getElementById('magnetUnitCostDisplay');
-const oppPriceInput = document.getElementById('oppPriceInput');
-const backingPriceInput = document.getElementById('backingPriceInput');
+
+const operatingCostsDisplay = document.getElementById('operatingCostsDisplay');
+const sampleCostSummaryDisplay = document.getElementById('sampleCostSummaryDisplay');
+
+const opCostBody = document.getElementById('opCostBody');
+const addOpCostBtn = document.getElementById('addOpCostBtn');
+const opCostTotalDisplay = document.getElementById('opCostTotalDisplay');
+
+const opStockBody = document.getElementById('opStockBody');
+const addOpStockBtn = document.getElementById('addOpStockBtn');
+const processOpStockBtn = document.getElementById('processOpStockBtn');
+const lastOpStockProcessedText = document.getElementById('lastOpStockProcessedText');
 
 const sellPricePhotocard = document.getElementById('sellPricePhotocard');
 const sellPriceKeyring = document.getElementById('sellPriceKeyring');
@@ -1134,8 +1180,6 @@ function renderProductionInputs() {
     magnetTicketInput.value = production.magnet.costParts.ticket;
     magnetRecordInput.value = production.magnet.costParts.record;
     magnetGongoInput.value = production.magnet.costParts.gongo;
-    oppPriceInput.value = production.packaging.opp.price;
-    backingPriceInput.value = production.packaging.backing.price;
 
     sellPricePhotocard.value = production.sellPrices.photocard;
     sellPriceKeyring.value = production.sellPrices.keyring;
@@ -1193,6 +1237,8 @@ function renderProductionCalc() {
     });
 
     productionCostDisplay.textContent = won(totalProductionCost());
+    operatingCostsDisplay.textContent = won(operatingCostsTotal());
+    sampleCostSummaryDisplay.textContent = won(production.investment.includeSample ? (production.investment.sampleCost || 0) : 0);
     totalInvestmentDisplay.textContent = won(totalInvestment());
 
     document.querySelector('[data-prod-stat="totalInvestment"]').textContent = won(totalInvestment());
@@ -1255,6 +1301,66 @@ function renderOrderHistoryStatus() {
         : '발주 완료 처리 이력이 없습니다.';
 }
 
+function renderOpCostRows() {
+    opCostBody.innerHTML = production.operatingCosts.items.map((item) => `
+        <tr>
+            <td><input type="text" class="opCostLabelInput" data-op-cost-id="${escapeHtml(item.id)}" value="${escapeHtml(item.label)}"></td>
+            <td><input type="number" min="0" class="opCostAmountInput" data-op-cost-id="${escapeHtml(item.id)}" value="${item.amount}"></td>
+            <td><input type="checkbox" class="opCostIncludeInput" data-op-cost-id="${escapeHtml(item.id)}" ${item.includeInInvestment ? 'checked' : ''}></td>
+            <td><input type="text" class="opCostMemoInput" data-op-cost-id="${escapeHtml(item.id)}" value="${escapeHtml(item.memo || '')}"></td>
+            <td><button type="button" class="opCostDeleteBtn" data-op-cost-id="${escapeHtml(item.id)}">삭제</button></td>
+        </tr>
+    `).join('');
+}
+
+function renderOpCostCalc() {
+    opCostTotalDisplay.textContent = won(operatingCostsTotal());
+}
+
+function renderOpStockRows() {
+    opStockBody.innerHTML = production.operationalStock.items.map((item) => `
+        <tr>
+            <td><input type="text" class="opStockLabelInput" data-op-stock-id="${escapeHtml(item.id)}" value="${escapeHtml(item.label)}"></td>
+            <td><input type="number" min="0" class="opStockStockInput" data-op-stock-id="${escapeHtml(item.id)}" value="${item.stock}"></td>
+            <td><input type="number" min="1" class="opStockUnitInput" data-op-stock-id="${escapeHtml(item.id)}" value="${item.orderUnit}"></td>
+            <td><input type="number" min="0" class="opStockBundleCountInput" data-op-stock-id="${escapeHtml(item.id)}" value="${item.bundleCount}"></td>
+            <td class="prodAutoCell" data-op-calc="${escapeHtml(item.id)}-incoming">0</td>
+            <td><input type="number" min="0" class="opStockPriceInput" data-op-stock-id="${escapeHtml(item.id)}" value="${item.bundlePrice}"></td>
+            <td class="prodAutoCell" data-op-calc="${escapeHtml(item.id)}-expectedUsage">0</td>
+            <td><input type="number" class="opStockManualInput" data-op-stock-id="${escapeHtml(item.id)}" value="${item.manualAdjustment}"></td>
+            <td class="prodAutoCell" data-op-calc="${escapeHtml(item.id)}-remainingAfterUse">0</td>
+            <td class="prodAutoCell" data-op-calc="${escapeHtml(item.id)}-shortage">0</td>
+            <td class="prodAutoCell" data-op-calc="${escapeHtml(item.id)}-recommendedBundles">0</td>
+            <td class="prodAutoCell" data-op-calc="${escapeHtml(item.id)}-totalOrderCost">0원</td>
+            <td><button type="button" class="opStockDeleteBtn" data-op-stock-id="${escapeHtml(item.id)}">삭제</button></td>
+        </tr>
+    `).join('');
+}
+
+function renderOpStockCalc() {
+    production.operationalStock.items.forEach((item) => {
+        const calc = operationalStockCalc(item);
+        const setText = (field, val) => {
+            const el = document.querySelector(`[data-op-calc="${item.id}-${field}"]`);
+            if (el) el.textContent = val;
+        };
+        setText('incoming', calc.incoming);
+        setText('expectedUsage', calc.expectedUsage);
+        setText('remainingAfterUse', calc.remainingAfterUse);
+        setText('shortage', calc.shortage);
+        setText('recommendedBundles', calc.recommendedBundles);
+        setText('totalOrderCost', won(calc.totalOrderCost));
+    });
+}
+
+function renderOpStockHistoryStatus() {
+    const history = production.operationalStockHistory;
+    const last = history[history.length - 1];
+    lastOpStockProcessedText.textContent = last
+        ? `마지막 입고 완료 처리: ${formatDateTime(last.processedAt)}`
+        : '입고 완료 처리 이력이 없습니다.';
+}
+
 function renderSnapshotList() {
     const snapshots = production.salesAnalysis.snapshots;
     if (!snapshots.length) {
@@ -1273,11 +1379,16 @@ function renderSnapshotList() {
 function renderProduction() {
     renderPhotocardTiers();
     renderProductionInputs();
+    renderOpCostRows();
+    renderOpCostCalc();
+    renderOpStockRows();
+    renderOpStockCalc();
     renderProductionCalc();
     renderProfitTable();
     renderSalesAnalysis();
     renderSnapshotList();
     renderOrderHistoryStatus();
+    renderOpStockHistoryStatus();
 }
 
 /* ---------------- 이벤트 리스너 ---------------- */
@@ -1320,18 +1431,6 @@ keyringUnitCostInput.addEventListener('input', () => {
         saveProduction();
         renderProduction();
     });
-});
-
-oppPriceInput.addEventListener('input', () => {
-    production.packaging.opp.price = Number(oppPriceInput.value) || 0;
-    saveProduction();
-    renderProduction();
-});
-
-backingPriceInput.addEventListener('input', () => {
-    production.packaging.backing.price = Number(backingPriceInput.value) || 0;
-    saveProduction();
-    renderProduction();
 });
 
 [
@@ -1429,11 +1528,121 @@ processOrderBtn.addEventListener('click', () => {
     production.magnet.stock = (production.magnet.stock || 0) + (production.magnet.orderQty || 0);
     production.magnet.orderQty = 0;
 
-    production.orderHistory.push({ id: Date.now(), processedAt: new Date().toISOString(), before });
+    const after = {
+        photocard: { stock: production.photocard.stock, bundleCount: production.photocard.bundleCount },
+        keyring: { stock: production.keyring.stock, orderQty: production.keyring.orderQty },
+        magnet: { stock: production.magnet.stock, orderQty: production.magnet.orderQty },
+    };
+
+    production.orderHistory.push({ id: Date.now(), processedAt: new Date().toISOString(), before, after });
 
     saveProduction();
     renderProduction();
     showToast('발주 수량이 현재 재고에 반영되었습니다.');
+});
+
+opCostBody.addEventListener('input', (e) => {
+    const id = e.target.dataset.opCostId;
+    if (!id) return;
+    const item = production.operatingCosts.items.find((i) => i.id === id);
+    if (!item) return;
+    if (e.target.classList.contains('opCostLabelInput')) item.label = e.target.value;
+    if (e.target.classList.contains('opCostAmountInput')) item.amount = Number(e.target.value) || 0;
+    if (e.target.classList.contains('opCostMemoInput')) item.memo = e.target.value;
+    saveProduction();
+    renderOpCostCalc();
+    renderProductionCalc();
+    renderProfitTable();
+});
+
+opCostBody.addEventListener('change', (e) => {
+    if (!e.target.classList.contains('opCostIncludeInput')) return;
+    const id = e.target.dataset.opCostId;
+    const item = production.operatingCosts.items.find((i) => i.id === id);
+    if (!item) return;
+    item.includeInInvestment = e.target.checked;
+    saveProduction();
+    renderOpCostCalc();
+    renderProductionCalc();
+    renderProfitTable();
+});
+
+opCostBody.addEventListener('click', (e) => {
+    const btn = e.target.closest('.opCostDeleteBtn');
+    if (!btn) return;
+    const id = btn.dataset.opCostId;
+    production.operatingCosts.items = production.operatingCosts.items.filter((i) => i.id !== id);
+    saveProduction();
+    renderOpCostRows();
+    renderOpCostCalc();
+    renderProductionCalc();
+    renderProfitTable();
+});
+
+addOpCostBtn.addEventListener('click', () => {
+    production.operatingCosts.items.push({ id: `oc${Date.now()}`, label: '새 항목', amount: 0, includeInInvestment: true, memo: '' });
+    saveProduction();
+    renderOpCostRows();
+    renderOpCostCalc();
+});
+
+opStockBody.addEventListener('input', (e) => {
+    const id = e.target.dataset.opStockId;
+    if (!id) return;
+    const item = production.operationalStock.items.find((i) => i.id === id);
+    if (!item) return;
+    if (e.target.classList.contains('opStockLabelInput')) item.label = e.target.value;
+    if (e.target.classList.contains('opStockStockInput')) item.stock = Number(e.target.value) || 0;
+    if (e.target.classList.contains('opStockUnitInput')) item.orderUnit = Number(e.target.value) || 0;
+    if (e.target.classList.contains('opStockBundleCountInput')) item.bundleCount = Number(e.target.value) || 0;
+    if (e.target.classList.contains('opStockPriceInput')) item.bundlePrice = Number(e.target.value) || 0;
+    if (e.target.classList.contains('opStockManualInput')) item.manualAdjustment = Number(e.target.value) || 0;
+    saveProduction();
+    renderOpStockCalc();
+});
+
+opStockBody.addEventListener('click', (e) => {
+    const btn = e.target.closest('.opStockDeleteBtn');
+    if (!btn) return;
+    if (production.operationalStock.items.length <= 1) {
+        alert('최소 1개의 운영 재고 항목은 남아있어야 합니다.');
+        return;
+    }
+    const id = btn.dataset.opStockId;
+    production.operationalStock.items = production.operationalStock.items.filter((i) => i.id !== id);
+    saveProduction();
+    renderOpStockRows();
+    renderOpStockCalc();
+});
+
+addOpStockBtn.addEventListener('click', () => {
+    production.operationalStock.items.push({
+        id: `os${Date.now()}`, label: '새 자재', stock: 0, orderUnit: 1, bundlePrice: 0, bundleCount: 0, manualAdjustment: 0,
+    });
+    saveProduction();
+    renderOpStockRows();
+    renderOpStockCalc();
+});
+
+processOpStockBtn.addEventListener('click', () => {
+    if (!confirm('현재 입력된 발주 묶음 수를 재고에 반영하시겠습니까?')) return;
+
+    const itemsHistory = production.operationalStock.items.map((item) => {
+        const calc = operationalStockCalc(item);
+        const before = { stock: item.stock, bundleCount: item.bundleCount };
+        item.stock = (item.stock || 0) + calc.incoming;
+        item.bundleCount = 0;
+        const after = { stock: item.stock, bundleCount: item.bundleCount };
+        return { id: item.id, label: item.label, before, after };
+    });
+
+    production.operationalStockHistory.push({ id: Date.now(), processedAt: new Date().toISOString(), items: itemsHistory });
+
+    saveProduction();
+    renderOpStockRows();
+    renderOpStockCalc();
+    renderOpStockHistoryStatus();
+    showToast('운영 재고 입고 수량이 현재 재고에 반영되었습니다.');
 });
 
 saveSnapshotBtn.addEventListener('click', () => {
@@ -1453,6 +1662,46 @@ saveSnapshotBtn.addEventListener('click', () => {
     renderSnapshotList();
     showToast('판매 분석 스냅샷을 저장했습니다.');
 });
+
+/* ---------------- 섹션 접기/펼치기 ---------------- */
+
+const COLLAPSE_STORAGE_KEY = 'speciesLabGoodsProductionCollapse';
+const DEFAULT_COLLAPSE_STATE = { salesAnalysis: true, operationalStock: false, operatingCosts: true };
+
+function loadCollapseState() {
+    const raw = localStorage.getItem(COLLAPSE_STORAGE_KEY);
+    if (!raw) return { ...DEFAULT_COLLAPSE_STATE };
+    try {
+        const parsed = JSON.parse(raw);
+        return { ...DEFAULT_COLLAPSE_STATE, ...parsed };
+    } catch (err) {
+        return { ...DEFAULT_COLLAPSE_STATE };
+    }
+}
+
+let collapseState = loadCollapseState();
+
+function saveCollapseState() {
+    localStorage.setItem(COLLAPSE_STORAGE_KEY, JSON.stringify(collapseState));
+}
+
+function applyCollapseState() {
+    document.querySelectorAll('[data-collapse-key]').forEach((panel) => {
+        const key = panel.dataset.collapseKey;
+        panel.classList.toggle('collapsed', !!collapseState[key]);
+    });
+}
+
+document.querySelectorAll('[data-collapse-toggle]').forEach((toggle) => {
+    toggle.addEventListener('click', () => {
+        const key = toggle.dataset.collapseToggle;
+        collapseState[key] = !collapseState[key];
+        saveCollapseState();
+        applyCollapseState();
+    });
+});
+
+applyCollapseState();
 
 /* ---------------- 초기화 ---------------- */
 

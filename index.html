@@ -165,6 +165,8 @@
                 </div>
                 <div class="prodSummaryLine">
                     <span>본품 제작비<b id="productionCostDisplay">0원</b></span>
+                    <span>운영비(투자금 포함분)<b id="operatingCostsDisplay">0원</b></span>
+                    <span>샘플 제작비<b id="sampleCostSummaryDisplay">0원</b></span>
                     <span>총 투자금<b id="totalInvestmentDisplay">0원</b></span>
                 </div>
             </div>
@@ -232,6 +234,34 @@
                 </div>
             </div>
 
+            <div class="prodPanel prodCollapsible" data-collapse-key="operationalStock">
+                <h3 class="prodCollapseHeader">
+                    <button type="button" class="prodCollapseToggle" data-collapse-toggle="operationalStock">
+                        <span class="prodCollapseArrow">▶</span> 운영 재고
+                    </button>
+                </h3>
+                <div class="prodCollapsibleBody"><div class="prodCollapsibleInner">
+                <div class="prodTableScroll">
+                    <table class="prodTable">
+                        <thead>
+                            <tr>
+                                <th>자재</th><th>현재재고</th><th>발주단위</th><th>발주묶음수</th><th>총입고수량</th>
+                                <th>묶음가격</th><th>예상사용수량</th><th>수동보정</th><th>사용후예상잔여</th>
+                                <th>부족수량</th><th>권장발주묶음수</th><th>총발주비용</th><th></th>
+                            </tr>
+                        </thead>
+                        <tbody id="opStockBody"></tbody>
+                    </table>
+                </div>
+                <button type="button" id="addOpStockBtn" class="prodGhostBtn">+ 자재 추가</button>
+                <div class="prodFieldRow">
+                    <button type="button" id="processOpStockBtn" class="prodPrimaryBtn">입고 완료 처리</button>
+                    <span class="prodHint" id="lastOpStockProcessedText">입고 완료 처리 이력이 없습니다.</span>
+                </div>
+                <p class="prodHint">※ 예상 사용 수량 = 포토카드 총보유 + 키링 총보유 + 자석세트 총보유 (기본: 상품 1개당 자재 1개 소모 기준) · 부족 수량 = 예상 사용 수량 - 현재재고(0 미만이면 0)</p>
+                </div></div>
+            </div>
+
             <div class="prodPanel">
                 <h3>제작 단가 관리</h3>
                 <div class="prodFieldRow">
@@ -243,11 +273,25 @@
                     <label>자석세트 - 공오 <input type="number" id="magnetGongoInput" min="0"></label>
                     <span class="prodInlineResult">= 세트당 <b id="magnetUnitCostDisplay">0원</b></span>
                 </div>
-                <div class="prodFieldRow prodPackagingRow">
-                    <label>OPP 100매 <input type="number" id="oppPriceInput" min="0"></label>
-                    <label>뒷대지 20매 <input type="number" id="backingPriceInput" min="0"></label>
+            </div>
+
+            <div class="prodPanel prodCollapsible" data-collapse-key="operatingCosts">
+                <h3 class="prodCollapseHeader">
+                    <button type="button" class="prodCollapseToggle" data-collapse-toggle="operatingCosts">
+                        <span class="prodCollapseArrow">▶</span> 운영비 관리
+                    </button>
+                </h3>
+                <div class="prodCollapsibleBody"><div class="prodCollapsibleInner">
+                <table class="prodTable">
+                    <thead><tr><th>항목</th><th>금액</th><th>투자금 포함</th><th>메모</th><th></th></tr></thead>
+                    <tbody id="opCostBody"></tbody>
+                </table>
+                <button type="button" id="addOpCostBtn" class="prodGhostBtn">+ 항목 추가</button>
+                <div class="prodSummaryLine">
+                    <span>운영비 합계(투자금 포함분)<b id="opCostTotalDisplay">0원</b></span>
                 </div>
-                <p class="prodHint">※ 포장재/배송비는 아래 손익 계산에서 제외됩니다 (참고용).</p>
+                <p class="prodHint">※ 배송비는 기본적으로 투자금에서 제외된 상태로 시작합니다. 필요 시 체크해서 포함할 수 있습니다.</p>
+                </div></div>
             </div>
 
             <div class="prodPanel">
@@ -279,8 +323,13 @@
                 <p class="prodHint">※ 올세트 예상매출은 실제 주문 수량(재고 한도 내)만큼 먼저 반영되고, 포토카드/키링/자석세트 예상매출은 올세트로 반영된 수량을 제외한 나머지 재고 기준으로 계산되어 서로 중복 집계되지 않습니다. 올세트 자체의 제작비는 포토카드+키링+자석세트 제작비에 이미 포함되어 있으므로 별도로 합산하지 않습니다.</p>
             </div>
 
-            <div class="prodPanel">
-                <h3>판매 분석</h3>
+            <div class="prodPanel prodCollapsible" data-collapse-key="salesAnalysis">
+                <h3 class="prodCollapseHeader">
+                    <button type="button" class="prodCollapseToggle" data-collapse-toggle="salesAnalysis">
+                        <span class="prodCollapseArrow">▶</span> 판매 분석
+                    </button>
+                </h3>
+                <div class="prodCollapsibleBody"><div class="prodCollapsibleInner">
                 <table class="prodTable">
                     <thead><tr><th>상품</th><th>제작 수량</th><th>수동 보정</th><th>판매 수량</th><th>남은 재고</th><th>판매율</th></tr></thead>
                     <tbody>
@@ -324,6 +373,7 @@
                     <span class="prodHint">행사 종료 후 저장해두면 다음 발주 추천 기능(추후 제공)의 기반 데이터로 사용됩니다.</span>
                 </div>
                 <ul class="snapshotList" id="snapshotList"></ul>
+                </div></div>
             </div>
         </section>
     </main>
