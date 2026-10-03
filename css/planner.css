@@ -524,3 +524,14 @@ body.modal-open { overflow: hidden; }
     .modal-panel .swatches { flex-wrap: wrap; }
     .modal-editor { min-height: 200px; padding: 16px 18px 22px; }
 }
+
+/* ---------- 글씨 크기 버튼 ---------- */
+.size-btns { display: flex; align-items: center; gap: 2px; }
+.size-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 32px;
+    line-height: 1;
+    font-weight: 600;
+}

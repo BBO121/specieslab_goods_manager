@@ -33,6 +33,9 @@
         { value: '#e6dcf6', label: '연보라' }
     ];
 
+    // 글씨 크기 (rem 기준이라 카드/모달에서 같은 크기, 중첩돼도 누적되지 않음). normal = 크기 지정 해제
+    const FONT_SIZES = { small: '0.8125rem', normal: null, large: '1.25rem', xlarge: '1.5rem' };
+
     /* ---------------- 상태 ---------------- */
     let state = null;          // { version, months: { 'YYYY-MM': { title, entries: [...] } }, meta: {...} }
     let currentMonth = '';     // 'YYYY-MM'
@@ -60,7 +63,8 @@
         modalEditor: document.querySelector('#entryModal .modal-editor'),
         modalClose: $('modalCloseBtn')
     };
-    let modalReturnFocus = null; // 모달을 닫은 뒤 포커스를 돌려줄 확대 버튼
+    let modalReturnFocus = null;
+    let pendingFontSize = null; // 선택 없이 크기를 고른 뒤 입력하는 글자에 적용할 크기 { editor, key } // 모달을 닫은 뒤 포커스를 돌려줄 확대 버튼
 
     /* ---------------- 유틸 ---------------- */
     function pad(n) { return String(n).padStart(2, '0'); }
@@ -111,7 +115,7 @@
 
     /* ---------------- 서식 HTML 정리 (불러온 데이터 안전 처리) ---------------- */
     const ALLOWED_TAGS = new Set(['B', 'STRONG', 'I', 'EM', 'U', 'S', 'STRIKE', 'DEL', 'SPAN', 'FONT', 'DIV', 'P', 'BR']);
-    const ALLOWED_STYLES = ['color', 'background-color', 'font-weight', 'font-style', 'text-decoration', 'text-decoration-line'];
+    const ALLOWED_STYLES = ['color', 'background-color', 'font-weight', 'font-style', 'text-decoration', 'text-decoration-line', 'font-size'];
 
     function sanitizeHtml(html) {
         const tpl = document.createElement('template');
@@ -448,7 +452,12 @@
         const editor = card.querySelector('.editor');
         ensureSelectionIn(editor);
         document.execCommand('styleWithCSS', false, true);
-        if (cmd === 'hiliteColor') {
+        if (cmd === 'fontSize') {
+            // 브라우저 기본 fontSize(1~7단계)를 임시 표식(7)으로 적용한 뒤 실제 크기로 바꿔 끼운다
+            pendingFontSize = { editor, key: value };
+            document.execCommand('fontSize', false, '7');
+            convertSizeMarkers(editor, value);
+        } else if (cmd === 'hiliteColor') {
             // 일부 브라우저는 hiliteColor 미지원 → backColor로 대체
             if (!document.execCommand('hiliteColor', false, value)) document.execCommand('backColor', false, value);
         } else {
@@ -458,11 +467,25 @@
         updateToolbarState();
     }
 
+    // execCommand('fontSize', 7)가 만든 표식을 실제 크기로 교체 (DOM 구조를 바꾸지 않아 선택 영역 유지)
+    function convertSizeMarkers(editor, key) {
+        const size = FONT_SIZES[key] || null;
+        editor.querySelectorAll('font[size="7"], [style*="xxx-large"]').forEach((el) => {
+            el.removeAttribute('size');
+            if (size) el.style.fontSize = size;
+            else el.style.removeProperty('font-size');
+            if (!el.getAttribute('style')) el.removeAttribute('style');
+        });
+    }
+
     // 카드 에디터와 모달 에디터 모두 이 함수로 entry.content(단일 원본)를 갱신한다
     function handleEditorInput(editor) {
         const owner = editor.closest('[data-id]');
         const entry = owner && findEntry(owner.dataset.id);
         if (!entry) return;
+        if (editor.querySelector('font[size="7"], [style*="xxx-large"]')) {
+            convertSizeMarkers(editor, pendingFontSize && pendingFontSize.editor === editor ? pendingFontSize.key : 'normal');
+        }
         normalizeEmptyEditor(editor);
         entry.content = editor.innerHTML;
         entry.updatedAt = nowIso();
