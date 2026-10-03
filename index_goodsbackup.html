@@ -1,0 +1,493 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>종족연구소 굿즈 매니저</title>
+    <link rel="icon" href="images/favicon.png" type="image/png">
+    <link rel="manifest" href="manifest.json">
+    <link rel="apple-touch-icon" href="images/icon-192.png">
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <header>
+        <h1>종족연구소 굿즈 매니저</h1>
+        <div class="headerControls">
+            <div class="backupStatus">
+                <span id="backupStatusText">백업 완료</span>
+                <span id="lastBackupText">마지막 백업: 없음</span>
+            </div>
+            <div class="dataTools">
+                <button type="button" id="addOrderBtn">주문 추가</button>
+                <button type="button" id="excelImportBtn">엑셀 주문 가져오기</button>
+                <button type="button" id="exportJsonBtn">JSON 내보내기</button>
+                <button type="button" id="exportCsvBtn">CSV 내보내기</button>
+                <label class="fileImport">
+                    불러오기
+                    <input type="file" id="importFile" accept=".json,.csv">
+                </label>
+                <input type="file" id="excelImportFileInput" accept=".xlsx,.xls,.csv" hidden>
+            </div>
+        </div>
+    </header>
+    <main>
+        <div id="mainList" class="mainListArea">
+            <ul>
+                <li>
+                    <p>주문<span data-stat="orderCount">0</span></p>
+                </li>
+                <li>
+                    <p>매출<span data-stat="revenue">0</span></p>
+        6        </li>
+                <li>
+                    <p>발송완료<span data-stat="shippedCount">0</span></p>
+                </li>
+                <li>
+                    <p>미발송<span data-stat="unshippedCount">0</span></p>
+                </li>
+            </ul>
+        </div>
+        <aside>
+            <nav>
+                <ul>
+                    <li><button type="button" class="active" data-page="order">주문목록</button></li>
+                    <li><button type="button" data-page="shipping">통판관리</button></li>
+                    <li><button type="button" data-page="production">발주 관리</button></li>
+                </ul>
+            </nav>
+        </aside>
+
+
+        <!-- 주문 목록 -->
+        <section class="orderPage">
+            <h2>주문 목록</h2>
+            <div class="toolbar">
+                <input type="search" id="orderSearch" placeholder="주문번호 / 이름 / 닉네임 검색">
+                <select id="orderReceiveFilter">
+                    <option value="all">전체</option>
+                    <option value="현장수령">현장수령</option>
+                    <option value="통판">통판</option>
+                </select>
+                <select id="orderPaidFilter">
+                    <option value="all">전체</option>
+                    <option value="paid">입금완료</option>
+                    <option value="unpaid">미입금</option>
+                </select>
+            </div>
+            <table>
+                <thead>
+                    <tr>
+                        <th rowspan="2">주문번호</th>
+                        <th rowspan="2">성함(닉네임)</th>
+                        <th rowspan="2">연락처</th>
+                        <th rowspan="2">수령방법</th>
+                        <th colspan="4">상품</th>
+                        <th rowspan="2">가격</th>
+                        <th rowspan="2">입금</th>
+                        <th rowspan="2">비고</th>
+                        <th rowspan="2">관리</th>
+                    </tr>
+                    <tr>
+                        <th>포카세트</th>
+                        <th>키링</th>
+                        <th>자석세트</th>
+                        <th>올세트</th>
+                    </tr>
+                </thead>
+                <tbody id="orderTableBody"></tbody>
+            </table>
+        </section>
+
+
+        <!-- 통판 관리 -->
+        <section class="shippingPage">
+            <h2>통판 관리</h2>
+            <div class="toolbar">
+                <input type="search" id="shippingIdSearch" placeholder="주문번호 검색">
+                <input type="search" id="shippingNameSearch" placeholder="이름 검색">
+                <label class="toggle">
+                    <input type="checkbox" id="unshippedOnly">
+                    미발송만 보기
+                </label>
+            </div>
+            <table>
+                <thead>
+                    <tr>
+                        <th>주문번호</th>
+                        <th>성함(닉네임)</th>
+                        <th>택배종류</th>
+                        <th>연락처</th>
+                        <th>주소(편의점주소)</th>
+                        <th>포장</th>
+                        <th>발송</th>
+                        <th>송장번호</th>
+                        <th>발송일</th>
+                        <th>비고</th>
+                        <th>관리</th>
+                    </tr>
+                </thead>
+                <tbody id="shippingTableBody"></tbody>
+            </table>
+        </section>
+
+
+        <!-- 발주 관리 대시보드 -->
+        <section class="productionPage hidden">
+            <h2>발주 관리 대시보드</h2>
+
+            <div class="prodStatusGroups">
+                <div class="prodStatusGroup prodStatusCurrent">
+                    <h4>현재 현황 <span class="prodBadge prodBadgeCurrent">실제</span></h4>
+                    <div class="mainListArea">
+                        <ul>
+                            <li><p>총 투자금<span data-prod-stat="totalInvestment">0원</span></p></li>
+                            <li><p>현재 매출<span data-prod-stat="currentRevenue">0원</span></p></li>
+                            <li><p>현재 순손익<span data-prod-stat="currentProfit">0원</span></p></li>
+                        </ul>
+                    </div>
+                </div>
+                <div class="prodStatusGroup prodStatusExpected">
+                    <h4>예상 현황 <span class="prodBadge prodBadgeExpected">시뮬레이션</span></h4>
+                    <div class="mainListArea">
+                        <ul>
+                            <li><p>예상 총매출<span data-prod-stat="expectedRevenue">0원</span></p></li>
+                            <li><p>예상 순이익<span data-prod-stat="expectedProfit">0원</span></p></li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+
+            <div class="prodPanel">
+                <h3>투자금 관리</h3>
+                <div class="prodFieldRow">
+                    <label>샘플 제작비 <input type="number" id="sampleCostInput" min="0"></label>
+                    <label class="toggle"><input type="checkbox" id="includeSampleCheckbox"> 샘플 제작비를 투자금에 포함</label>
+                </div>
+                <div class="prodSummaryLine">
+                    <span>본품 제작비<b id="productionCostDisplay">0원</b></span>
+                    <span>운영비(투자금 포함분)<b id="operatingCostsDisplay">0원</b></span>
+                    <span>샘플 제작비<b id="sampleCostSummaryDisplay">0원</b></span>
+                    <span>총 투자금<b id="totalInvestmentDisplay">0원</b></span>
+                </div>
+                <p class="prodHint">※ 본품 제작비 = 현재재고 × 상품별 제작 단가(포토카드는 선택된 발주 옵션 기준 고정 단가). 판매되어도 재고는 자동으로 줄지 않으므로 총 투자금은 판매 여부와 무관하게 유지되며, 재고를 직접 수정하거나 발주 완료 처리·제작 단가·운영비를 바꿀 때만 변경됩니다.</p>
+            </div>
+
+            <div class="prodPanel">
+                <h3>발주 관리</h3>
+                <table class="prodTable">
+                    <thead>
+                        <tr><th>상품</th><th>현재재고</th><th>발주</th><th>총보유</th><th>선입금</th><th>현장판매</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td class="name-cell">포토카드</td>
+                            <td><input type="number" min="0" data-prod-key="photocard" data-prod-field="stock"></td>
+                            <td class="prodAutoCell" data-prod-calc="photocard-order">0</td>
+                            <td class="prodAutoCell" data-prod-calc="photocard-held">0</td>
+                            <td><input type="number" min="0" data-prod-key="photocard" data-prod-field="prepaid"></td>
+                            <td class="prodAutoCell" data-prod-calc="photocard-onsite">0</td>
+                        </tr>
+                        <tr>
+                            <td class="name-cell">키링</td>
+                            <td><input type="number" min="0" data-prod-key="keyring" data-prod-field="stock"></td>
+                            <td><input type="number" min="0" data-prod-key="keyring" data-prod-field="orderQty"></td>
+                            <td class="prodAutoCell" data-prod-calc="keyring-held">0</td>
+                            <td><input type="number" min="0" data-prod-key="keyring" data-prod-field="prepaid"></td>
+                            <td class="prodAutoCell" data-prod-calc="keyring-onsite">0</td>
+                        </tr>
+                        <tr>
+                            <td class="name-cell">자석세트</td>
+                            <td><input type="number" min="0" data-prod-key="magnet" data-prod-field="stock"></td>
+                            <td><input type="number" min="0" data-prod-key="magnet" data-prod-field="orderQty"></td>
+                            <td class="prodAutoCell" data-prod-calc="magnet-held">0</td>
+                            <td><input type="number" min="0" data-prod-key="magnet" data-prod-field="prepaid"></td>
+                            <td class="prodAutoCell" data-prod-calc="magnet-onsite">0</td>
+                        </tr>
+                    </tbody>
+                </table>
+                <div class="prodFieldRow">
+                    <button type="button" id="processOrderBtn" class="prodPrimaryBtn">발주 완료 처리</button>
+                    <span class="prodHint" id="lastOrderProcessedText">발주 완료 처리 이력이 없습니다.</span>
+                </div>
+                <p class="prodHint">※ 총보유 = 현재재고 + 발주 · 현장판매 = 총보유 - 선입금 · 포토카드의 '발주'는 아래 발주 옵션에서 자동 계산됩니다.</p>
+            </div>
+
+            <div class="prodPanel">
+                <h3>포토카드 발주 옵션</h3>
+                <table class="prodTable" id="photocardTierTable">
+                    <thead><tr><th>옵션명</th><th>매수</th><th>가격</th><th></th></tr></thead>
+                    <tbody id="photocardTierBody"></tbody>
+                </table>
+                <button type="button" id="addPhotocardTierBtn" class="prodGhostBtn">+ 옵션 추가</button>
+
+                <div class="prodFieldRow">
+                    <label>발주 옵션 선택
+                        <select id="photocardTierSelect"></select>
+                    </label>
+                    <label>발주 묶음 수 <input type="number" id="photocardBundleCount" min="0"></label>
+                </div>
+
+                <div class="prodCalcSummary">
+                    <span>총 발주 매수 <b id="pcTotalSheets">0</b>매</span>
+                    <span>완성 세트 <b id="pcCompleteSets">0</b>개</span>
+                    <span>여분 낱장 <b id="pcLeftover">0</b>매</span>
+                    <span>총 제작비 <b id="pcTotalCost">0원</b></span>
+                </div>
+            </div>
+
+            <div class="prodPanel prodCollapsible" data-collapse-key="operationalStock">
+                <h3 class="prodCollapseHeader">
+                    <button type="button" class="prodCollapseToggle" data-collapse-toggle="operationalStock">
+                        <span class="prodCollapseArrow">▶</span> 운영 재고
+                    </button>
+                </h3>
+                <div class="prodCollapsibleBody"><div class="prodCollapsibleInner">
+                <div class="prodTableScroll">
+                    <table class="prodTable">
+                        <thead>
+                            <tr>
+                                <th>자재</th><th>현재재고</th><th>발주단위</th><th>발주묶음수</th><th>총입고수량</th>
+                                <th>묶음가격</th><th>예상사용수량</th><th>수동보정</th><th>사용후예상잔여</th>
+                                <th>부족수량</th><th>권장발주묶음수</th><th>총발주비용</th><th></th>
+                            </tr>
+                        </thead>
+                        <tbody id="opStockBody"></tbody>
+                    </table>
+                </div>
+                <button type="button" id="addOpStockBtn" class="prodGhostBtn">+ 자재 추가</button>
+                <div class="prodFieldRow">
+                    <button type="button" id="processOpStockBtn" class="prodPrimaryBtn">입고 완료 처리</button>
+                    <span class="prodHint" id="lastOpStockProcessedText">입고 완료 처리 이력이 없습니다.</span>
+                </div>
+                <p class="prodHint">※ 예상 사용 수량 = 포토카드 총보유 + 키링 총보유 + 자석세트 총보유 (기본: 상품 1개당 자재 1개 소모 기준) · 부족 수량 = 예상 사용 수량 - 현재재고(0 미만이면 0)</p>
+                </div></div>
+            </div>
+
+            <div class="prodPanel">
+                <h3>제작 단가 관리</h3>
+                <div class="prodFieldRow">
+                    <label>키링 단가 <input type="number" id="keyringUnitCostInput" min="0"></label>
+                </div>
+                <div class="prodFieldRow">
+                    <label>자석세트 - 티켓 <input type="number" id="magnetTicketInput" min="0"></label>
+                    <label>자석세트 - 기록 <input type="number" id="magnetRecordInput" min="0"></label>
+                    <label>자석세트 - 공오 <input type="number" id="magnetGongoInput" min="0"></label>
+                    <span class="prodInlineResult">= 세트당 <b id="magnetUnitCostDisplay">0원</b></span>
+                </div>
+            </div>
+
+            <div class="prodPanel prodCollapsible" data-collapse-key="operatingCosts">
+                <h3 class="prodCollapseHeader">
+                    <button type="button" class="prodCollapseToggle" data-collapse-toggle="operatingCosts">
+                        <span class="prodCollapseArrow">▶</span> 운영비 관리
+                    </button>
+                </h3>
+                <div class="prodCollapsibleBody"><div class="prodCollapsibleInner">
+                <table class="prodTable">
+                    <thead><tr><th>항목</th><th>금액</th><th>투자금 포함</th><th>메모</th><th></th></tr></thead>
+                    <tbody id="opCostBody"></tbody>
+                </table>
+                <button type="button" id="addOpCostBtn" class="prodGhostBtn">+ 항목 추가</button>
+                <div class="prodSummaryLine">
+                    <span>운영비 합계(투자금 포함분)<b id="opCostTotalDisplay">0원</b></span>
+                </div>
+                <p class="prodHint">※ 배송비는 기본적으로 투자금에서 제외된 상태로 시작합니다. 필요 시 체크해서 포함할 수 있습니다.</p>
+                </div></div>
+            </div>
+
+            <div class="prodPanel">
+                <h3>판매 가격 관리</h3>
+                <div class="prodFieldRow">
+                    <label>포토카드 <input type="number" id="sellPricePhotocard" min="0"></label>
+                    <label>키링 <input type="number" id="sellPriceKeyring" min="0"></label>
+                    <label>자석세트 <input type="number" id="sellPriceMagnet" min="0"></label>
+                    <label>올세트 <input type="number" id="sellPriceFullset" min="0"></label>
+                </div>
+            </div>
+
+            <div class="prodPanel">
+                <h3>손익 계산표</h3>
+                <table class="prodTable">
+                    <thead>
+                        <tr><th>상품</th><th>제작단가</th><th>판매가</th><th>마진</th><th>제작비</th><th>예상매출</th><th>예상순이익</th></tr>
+                    </thead>
+                    <tbody id="profitTableBody"></tbody>
+                    <tfoot>
+                        <tr class="prodTotalRow">
+                            <td>합계</td><td>-</td><td>-</td><td>-</td>
+                            <td id="profitTotalCost">0원</td>
+                            <td id="profitTotalRevenue">0원</td>
+                            <td id="profitTotalProfit">0원</td>
+                        </tr>
+                    </tfoot>
+                </table>
+                <p class="prodHint">※ 올세트 예상매출은 실제 주문 수량(재고 한도 내)만큼 먼저 반영되고, 포토카드/키링/자석세트 예상매출은 올세트로 반영된 수량을 제외한 나머지 재고 기준으로 계산되어 서로 중복 집계되지 않습니다. 올세트 자체의 제작비는 포토카드+키링+자석세트 제작비에 이미 포함되어 있으므로 별도로 합산하지 않습니다.</p>
+            </div>
+
+            <div class="prodPanel prodCollapsible" data-collapse-key="salesAnalysis">
+                <h3 class="prodCollapseHeader">
+                    <button type="button" class="prodCollapseToggle" data-collapse-toggle="salesAnalysis">
+                        <span class="prodCollapseArrow">▶</span> 판매 분석
+                    </button>
+                </h3>
+                <div class="prodCollapsibleBody"><div class="prodCollapsibleInner">
+                <table class="prodTable">
+                    <thead><tr><th>상품</th><th>제작 수량</th><th>수동 보정</th><th>판매 수량</th><th>남은 재고</th><th>판매율</th></tr></thead>
+                    <tbody>
+                        <tr>
+                            <td class="name-cell">포토카드</td>
+                            <td class="prodAutoCell" data-sales-calc="photocard-produced">0</td>
+                            <td><input type="number" data-manual-key="photocard" value="0"></td>
+                            <td class="prodAutoCell" data-sales-calc="photocard-sold">0</td>
+                            <td class="prodAutoCell" data-sales-calc="photocard-remaining">0</td>
+                            <td class="prodAutoCell" data-sales-calc="photocard-rate">-</td>
+                        </tr>
+                        <tr>
+                            <td class="name-cell">키링</td>
+                            <td class="prodAutoCell" data-sales-calc="keyring-produced">0</td>
+                            <td><input type="number" data-manual-key="keyring" value="0"></td>
+                            <td class="prodAutoCell" data-sales-calc="keyring-sold">0</td>
+                            <td class="prodAutoCell" data-sales-calc="keyring-remaining">0</td>
+                            <td class="prodAutoCell" data-sales-calc="keyring-rate">-</td>
+                        </tr>
+                        <tr>
+                            <td class="name-cell">자석세트</td>
+                            <td class="prodAutoCell" data-sales-calc="magnet-produced">0</td>
+                            <td><input type="number" data-manual-key="magnet" value="0"></td>
+                            <td class="prodAutoCell" data-sales-calc="magnet-sold">0</td>
+                            <td class="prodAutoCell" data-sales-calc="magnet-remaining">0</td>
+                            <td class="prodAutoCell" data-sales-calc="magnet-rate">-</td>
+                        </tr>
+                        <tr>
+                            <td class="name-cell">올세트</td>
+                            <td>-</td>
+                            <td>-</td>
+                            <td class="prodAutoCell" data-sales-calc="fullset-sold">0</td>
+                            <td>-</td>
+                            <td>-</td>
+                        </tr>
+                    </tbody>
+                </table>
+                <p class="prodHint">※ 판매 수량 = 단품 판매 + 올세트 판매(올세트 1개 판매 시 포토카드/키링/자석세트 각 +1) + 수동 보정</p>
+                <div class="prodFieldRow">
+                    <button type="button" id="saveSnapshotBtn">현재 스냅샷 저장</button>
+                    <span class="prodHint">행사 종료 후 저장해두면 다음 발주 추천 기능(추후 제공)의 기반 데이터로 사용됩니다.</span>
+                </div>
+                <ul class="snapshotList" id="snapshotList"></ul>
+                </div></div>
+            </div>
+        </section>
+    </main>
+
+    <dialog id="orderDialog">
+        <form id="orderForm">
+            <h2 id="orderDialogTitle">주문 추가</h2>
+            <input type="hidden" id="orderEditingId">
+
+            <label>주문번호 <input type="text" id="fieldOrderId" required></label>
+            <label>성함(닉네임) <input type="text" id="fieldName" required></label>
+            <label>연락처 <input type="text" id="fieldPhone"></label>
+            <label>수령방법
+                <select id="fieldReceiveMethod">
+                    <option value="현장수령">현장수령</option>
+                    <option value="통판">통판</option>
+                </select>
+            </label>
+
+            <fieldset>
+                <legend>상품 수량</legend>
+                <label>포카세트 <input type="number" id="fieldPhotocard" min="0" value="0"></label>
+                <label>키링 <input type="number" id="fieldKeyring" min="0" value="0"></label>
+                <label>자석세트 <input type="number" id="fieldMagnet" min="0" value="0"></label>
+                <label>올세트 <input type="number" id="fieldFullset" min="0" value="0"></label>
+            </fieldset>
+
+            <label>입금여부 <input type="checkbox" id="fieldPaid"></label>
+            <label>비고 <input type="text" id="fieldMemo"></label>
+
+            <fieldset id="shippingFields">
+                <legend>통판 정보</legend>
+                <label>택배종류
+                    <select id="fieldCourier">
+                        <option value="반값택배">반값택배</option>
+                        <option value="일반택배">일반택배</option>
+                    </select>
+                </label>
+                <label>주소(편의점주소) <input type="text" id="fieldAddress"></label>
+                <label>포장 <input type="checkbox" id="fieldPacked"></label>
+                <label>발송 <input type="checkbox" id="fieldShipped"></label>
+                <label>송장번호 <input type="text" id="fieldTracking"></label>
+                <label>발송일 <input type="date" id="fieldShippedDate"></label>
+                <label>통판 비고 <input type="text" id="fieldShippingMemo"></label>
+            </fieldset>
+
+            <div class="dialogActions">
+                <button type="button" id="cancelOrderBtn">취소</button>
+                <button type="submit" id="saveOrderBtn">저장</button>
+            </div>
+        </form>
+    </dialog>
+
+    <dialog id="excelImportDialog">
+        <div class="excelImportModal">
+            <h2>엑셀 주문 가져오기</h2>
+            <p class="excelImportFileName" id="excelImportFileName"></p>
+
+            <div class="excelImportSection">
+                <h3>컬럼 매핑 확인</h3>
+                <p class="excelImportHint">파일의 열을 자동으로 인식했어요. 잘못 매칭된 항목이 있으면 직접 바꿔주세요.</p>
+                <div class="excelMappingGrid" id="excelMappingGrid"></div>
+            </div>
+
+            <div class="excelImportSection">
+                <h3>가져오기 방식</h3>
+                <div class="excelImportOptions">
+                    <label class="radioOption">
+                        <input type="radio" name="excelImportMode" value="add" checked>
+                        새 주문만 추가 (기존 주문번호는 건너뜀)
+                    </label>
+                    <label class="radioOption">
+                        <input type="radio" name="excelImportMode" value="overwrite">
+                        기존 주문번호는 덮어쓰기
+                    </label>
+                </div>
+            </div>
+
+            <div class="excelImportSection">
+                <h3>미리보기</h3>
+                <p class="excelImportSummary" id="excelImportSummary"></p>
+                <div class="excelPreviewWrap">
+                    <table class="excelPreviewTable">
+                        <thead>
+                            <tr>
+                                <th>행</th>
+                                <th>상태</th>
+                                <th>주문번호</th>
+                                <th>이름</th>
+                                <th>연락처</th>
+                                <th>수령방법</th>
+                                <th>수량(포/키/자/올)</th>
+                                <th>입금</th>
+                                <th>비고</th>
+                            </tr>
+                        </thead>
+                        <tbody id="excelPreviewBody"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="dialogActions">
+                <button type="button" id="excelImportCancelBtn">취소</button>
+                <button type="button" id="excelImportConfirmBtn">가져오기</button>
+            </div>
+        </div>
+    </dialog>
+
+    <footer>
+        <small>made by. BBO</small>
+    </footer>
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <script src="js/app.js" defer></script>
+</body>
+</html>
