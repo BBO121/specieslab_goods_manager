@@ -66,7 +66,7 @@ body {
     line-height: 1.6;
 }
 
-button, input { font: inherit; color: inherit; }
+button, input, textarea { font: inherit; color: inherit; }
 button { cursor: pointer; }
 
 /* ---------- 상단 바 ---------- */
@@ -535,3 +535,134 @@ body.modal-open { overflow: hidden; }
     line-height: 1;
     font-weight: 600;
 }
+
+/* ---------- 날짜 박스 (일정 칸 안의 다른 날짜 일정) ---------- */
+.toolbar > .datebox-add-btn { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); font-weight: 600; }
+.toolbar > .datebox-add-btn:hover { background: #fff; }
+
+.datebox {
+    margin: 4px 0;
+    max-width: 100%;
+    padding: 4px 8px 5px 10px;
+    border: 1px solid var(--line-strong);
+    border-left: 3px solid var(--line-strong);
+    border-radius: 8px;
+    background: #fff;
+    font-size: .94em;
+    line-height: 1.6;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+}
+.datebox[data-dow="6"] { border-left-color: var(--sat); }
+.datebox[data-dow="0"] { border-left-color: var(--sun); }
+/* 왼쪽 선 색 (선택하면 요일 색 대신 적용) */
+.datebox[data-color="red"]    { border-left-color: #c2453d; }
+.datebox[data-color="orange"] { border-left-color: #d27a1f; }
+.datebox[data-color="yellow"] { border-left-color: #d9b200; }
+.datebox[data-color="green"]  { border-left-color: #2f7d4f; }
+.datebox[data-color="blue"]   { border-left-color: #2f6fb3; }
+.datebox[data-color="purple"] { border-left-color: #7a4bb0; }
+.datebox[data-color="pink"]   { border-left-color: #d6649a; }
+.datebox[data-color="gray"]   { border-left-color: #8d887c; }
+
+.datebox-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+    margin-bottom: 1px;
+    line-height: 1.4;
+    white-space: normal;
+    user-select: none;
+    -webkit-user-select: none;
+}
+.datebox-date,
+.db-preview {
+    font-size: 12px;
+    font-weight: 700;
+    padding: 0 7px;
+    border-radius: 999px;
+    background: #efebe1;
+    color: var(--ink-soft);
+    white-space: nowrap;
+}
+.datebox[data-dow="6"] .datebox-date, .db-preview[data-dow="6"] { background: var(--sat-soft); color: var(--sat); }
+.datebox[data-dow="0"] .datebox-date, .db-preview[data-dow="0"] { background: var(--sun-soft); color: var(--sun); }
+.db-preview:empty { display: none; }
+
+.datebox-edit {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--muted);
+    opacity: .6;
+    transition: opacity .15s, background .15s, color .15s, border-color .15s;
+}
+.datebox-edit:hover,
+.datebox-edit:focus-visible,
+.datebox:focus-within .datebox-edit { opacity: 1; }
+.datebox-edit:hover,
+.datebox-edit:focus-visible { color: var(--accent); background: var(--accent-soft); border-color: var(--accent); outline: none; }
+
+.datebox-body { min-height: 1.6em; }
+
+/* 날짜 박스 대화상자 (확대 모달 위에 표시) */
+.datebox-overlay { z-index: 120; }
+.datebox-dialog {
+    width: min(380px, 100%);
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 18px 20px 16px;
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    box-shadow: 0 24px 60px rgba(20, 16, 8, .28);
+    animation: panel-in .18s ease-out;
+}
+.datebox-dialog [hidden] { display: none !important; }
+.datebox-dialog h3 { margin: 0; font-size: 17px; font-weight: 800; }
+.db-field { display: flex; flex-direction: column; gap: 5px; font-size: 13px; font-weight: 600; color: var(--muted); }
+.db-date-row { display: flex; align-items: center; gap: 8px; }
+.db-field input[type="date"],
+.db-field textarea {
+    border: 1px solid var(--line-strong);
+    background: #fff;
+    border-radius: 10px;
+    padding: 8px 10px;
+    font-size: 15px;
+    font-weight: 400;
+    color: var(--ink);
+}
+.db-field input[type="date"] { flex: 1; min-width: 0; }
+.db-field textarea { width: 100%; min-height: 76px; resize: vertical; line-height: 1.6; }
+.db-field input:focus, .db-field textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.db-hint { margin: 0; font-size: 12px; line-height: 1.5; color: var(--muted); }
+.db-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.db-spacer { flex: 1; }
+.db-actions .tool-btn { padding: 8px 14px; font-size: 14px; }
+
+@media (max-width: 640px) {
+    .datebox-edit { opacity: 1; } /* 터치 화면에는 hover가 없으므로 항상 표시 */
+}
+
+/* 날짜 박스 색 선택 */
+.db-colors { display: flex; flex-wrap: wrap; gap: 8px; }
+.db-color {
+    width: 30px;
+    height: 30px;
+    padding: 0;
+    border-radius: 6px;
+    border: 1px solid var(--line-strong);
+    border-left: 6px solid var(--sw, var(--line-strong));
+    background: #fff;
+}
+.db-color:hover { transform: scale(1.08); }
+.db-color[aria-checked="true"] { box-shadow: 0 0 0 2px var(--card), 0 0 0 4px var(--accent); }

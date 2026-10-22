@@ -91,6 +91,7 @@
                 <span class="tb-group"><span class="tb-label">형광펜</span><span class="swatches" data-kind="hilite"></span></span>
                 <span class="tb-sep"></span>
                 <button type="button" class="fmt-btn wide" data-cmd="removeFormat" title="선택 영역 서식 지우기">서식 지우기</button>
+                <button type="button" class="fmt-btn wide datebox-add-btn" data-action="add-datebox" title="다른 날짜의 일정을 이 칸 안에 박스로 넣기">+ 날짜 박스</button>
             </div>
 
             <div class="editor" contenteditable="true" spellcheck="false" data-placeholder="업데이트 내용을 자유롭게 작성하세요."></div>
@@ -113,6 +114,35 @@
                 <div class="editor modal-editor" contenteditable="true" spellcheck="false" data-placeholder="업데이트 내용을 자유롭게 작성하세요."></div>
             </div>
         </section>
+    </div>
+
+    <!-- 날짜 박스 추가/수정 대화상자 (카드·확대 모달 공용) -->
+    <div class="modal-overlay datebox-overlay" id="dateboxDialog" hidden>
+        <form class="datebox-dialog" id="dateboxForm" role="dialog" aria-modal="true" aria-labelledby="dateboxDialogTitle" novalidate>
+            <h3 id="dateboxDialogTitle">날짜 박스 추가</h3>
+            <label class="db-field">
+                <span>날짜</span>
+                <span class="db-date-row">
+                    <input type="date" id="dateboxDate" required>
+                    <span class="db-preview" id="dateboxPreview"></span>
+                </span>
+            </label>
+            <div class="db-field">
+                <span id="dateboxColorLabel">왼쪽 선 색</span>
+                <span class="db-colors" id="dateboxColors" role="radiogroup" aria-labelledby="dateboxColorLabel"></span>
+            </div>
+            <label class="db-field" id="dateboxTextField">
+                <span>내용</span>
+                <textarea id="dateboxText" rows="3" placeholder="예) [종종] 9탄 유사님 뭉타 + 파시어 공개"></textarea>
+            </label>
+            <p class="db-hint" id="dateboxHint">박스를 넣은 칸의 날짜는 바뀌지 않아요. 내용은 박스 안에서 바로 고칠 수 있고, 글자색·형광펜 등 서식도 쓸 수 있어요.</p>
+            <div class="db-actions">
+                <button type="button" class="icon-btn danger" id="dateboxDeleteBtn" hidden>박스 삭제</button>
+                <span class="db-spacer"></span>
+                <button type="button" class="tool-btn" id="dateboxCancelBtn">취소</button>
+                <button type="submit" class="primary-btn" id="dateboxSubmitBtn">추가</button>
+            </div>
+        </form>
     </div>
 
     <script src="js/planner.js"></script>
